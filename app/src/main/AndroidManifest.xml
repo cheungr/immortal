@@ -15,6 +15,9 @@
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"
         tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- "Install an APK" browser: list APKs the user downloaded. Pre-granted by
+         the provisioning kit; also requested at runtime. -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
 
     <application
         android:allowBackup="true"
@@ -62,6 +65,37 @@
             android:name=".PhotoFramePreviewActivity"
             android:exported="false"
             android:theme="@style/Theme.SampleApp" />
+
+        <!-- "Install an APK" file browser, opened from the App Store. -->
+        <activity
+            android:name=".ApkBrowserActivity"
+            android:exported="false"
+            android:label="Install an APK"
+            android:theme="@style/Theme.SampleApp" />
+
+        <!-- "Open with Immortal" for any .apk the user taps (Chrome download,
+             file manager, etc.) — routes the install through the silent daemon,
+             so sideloading works even where the stock installer is broken. -->
+        <activity
+            android:name=".ApkInstallActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:label="Install with Immortal"
+            android:theme="@style/Theme.SampleApp">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" android:mimeType="application/vnd.android.package-archive" />
+                <data android:scheme="file" android:mimeType="application/vnd.android.package-archive" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.INSTALL_PACKAGE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+            </intent-filter>
+        </activity>
 
         <!-- Reaffirm our screensaver settings after boot (self-healing). -->
         <receiver

@@ -18,6 +18,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -123,6 +124,15 @@ private fun StoreScreen() {
         if (InstallDaemon.installPaused(context)) {
           PausedBanner()
         }
+        Text(
+            "📁  Have an APK file? Install it →",
+            color = Color(0xFF8AB4F8),
+            fontSize = 15.sp,
+            modifier =
+                Modifier.padding(top = 10.dp).clickable {
+                  context.startActivity(Intent(context, ApkBrowserActivity::class.java))
+                },
+        )
       }
       categories.forEach { (cat, list) ->
         item {
@@ -160,11 +170,7 @@ private fun PausedBanner() {
           color = Color(0xFFFFD180),
       )
       Text(
-          "This is a Gen-1 Portal (Android 9). Its built-in installer is broken, so " +
-              "Immortal uses a helper that, like all such tools, doesn't survive a reboot. " +
-              "Reconnect this Portal to a computer and re-run Immortal setup (or " +
-              "\"provision.sh --installd\") to re-enable installing. This is expected on " +
-              "Gen-1 after a reboot — newer Portals don't need it.",
+          "This is expected on Gen-1 Portals after a reboot — reinstall Immortal to restore.",
           style = MaterialTheme.typography.bodySmall,
           color = Color(0xFFEEEEEE),
           modifier = Modifier.padding(top = 6.dp),

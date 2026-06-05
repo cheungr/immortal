@@ -1,6 +1,6 @@
 {
-  "versionCode": 8,
-  "versionName": "1.7",
+  "versionCode": 9,
+  "versionName": "1.8",
   "apkUrl": "https://github.com/starbrightlab/immortal/releases/latest/download/immortal.apk",
-  "notes": "Immortal 1.7 — on a Gen-1 Portal (Android 9) where the install helper isn't running (e.g. after a reboot), the App Store now clearly shows that one-tap install is paused and how to re-enable it, instead of failing silently. Newer Portals are unaffected."
+  "notes": "Immortal 1.8 — install APKs from anywhere. Tap any downloaded APK and choose 'Install with Immortal' to install it silently, and use the new 'Install an APK' file browser in the App Store. Makes sideloading work on the Gen-1 Portal even though its built-in installer is broken."
 }

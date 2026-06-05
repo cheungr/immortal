@@ -143,6 +143,8 @@ function Grant-Perms {
   foreach ($p in ($cfg["PERMISSIONS"] -split "\s+")) { if ($p) { A shell pm grant $cfg["PKG"] $p | Out-Null } }
   # Self-healing: lets Immortal reaffirm its screensaver settings if reset.
   A shell pm grant $cfg["PKG"] android.permission.WRITE_SECURE_SETTINGS | Out-Null
+  # Lets the "Install an APK" browser see downloaded APKs without a prompt.
+  A shell pm grant $cfg["PKG"] android.permission.READ_EXTERNAL_STORAGE | Out-Null
   Ok "Permissions granted"
 }
 function Disable-Verifier {
