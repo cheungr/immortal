@@ -1,6 +1,6 @@
 {
-  "versionCode": 9,
-  "versionName": "1.8",
+  "versionCode": 10,
+  "versionName": "1.9",
   "apkUrl": "https://github.com/starbrightlab/immortal/releases/latest/download/immortal.apk",
-  "notes": "Immortal 1.8 — install APKs from anywhere. Tap any downloaded APK and choose 'Install with Immortal' to install it silently, and use the new 'Install an APK' file browser in the App Store. Makes sideloading work on the Gen-1 Portal even though its built-in installer is broken."
+  "notes": "Immortal 1.9 — clearer messaging when app installs are paused on a first-gen Portal after a reboot. The app now tells you exactly what to do (reconnect and re-run the installer) instead of a misleading hint. No functional change."
 }
