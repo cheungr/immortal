@@ -107,6 +107,14 @@
             android:label="Screensaver"
             android:theme="@style/Theme.SampleApp" />
 
+        <!-- Friendly, non-technical guided tour. Opened from the Help tile and once
+             automatically on first launch. -->
+        <activity
+            android:name=".HelpActivity"
+            android:exported="false"
+            android:label="Help"
+            android:theme="@style/Theme.SampleApp" />
+
         <!-- In-app folder browser for picking a screensaver source (the Portal has
              no system document picker), reachable from the screensaver settings. -->
         <activity

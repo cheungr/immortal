@@ -123,6 +123,12 @@ class HomeActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     enterImmersive()
+    // First launch: show the friendly tour once so new users aren't dropped in cold.
+    if (!HelpActivity.hasSeen(this)) {
+      window.decorView.post {
+        runCatching { startActivity(Intent(this, HelpActivity::class.java)) }
+      }
+    }
     setContent {
       SampleAppTheme(darkTheme = true) {
         LauncherScreen(
@@ -137,6 +143,9 @@ class HomeActivity : ComponentActivity() {
             },
             onOpenStore = {
               runCatching { startActivity(Intent(this, StoreActivity::class.java)) }
+            },
+            onOpenHelp = {
+              runCatching { startActivity(Intent(this, HelpActivity::class.java)) }
             },
             onStartScreensaver = {
               runCatching {
@@ -232,6 +241,7 @@ class HomeActivity : ComponentActivity() {
 private fun LauncherScreen(
     onLaunch: (ComponentName) -> Unit,
     onOpenStore: () -> Unit,
+    onOpenHelp: () -> Unit,
     onStartScreensaver: () -> Unit,
     onExitHome: () -> Unit,
     onUninstall: (String) -> Unit,
@@ -450,6 +460,7 @@ private fun LauncherScreen(
           // only regular apps get a delete badge and become draggable.
           item { PortalHomeTile(onExitHome) }
           item { StoreTile(onOpenStore) }
+          item { HelpTile(onOpenHelp) }
           items(folderNames, key = { it }) { name ->
             FolderTile(
                 name = name,
@@ -821,6 +832,8 @@ private const val ICON_REFRESH =
     "M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"
 private const val ICON_IMAGE =
     "M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"
+private const val ICON_HELP =
+    "M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"
 
 /** A non-app tile injected into a folder (e.g. the Screensaver settings entry). */
 private data class FolderExtra(val label: String, val glyph: String, val onClick: () -> Unit)
@@ -1172,6 +1185,16 @@ private fun StoreTile(onClick: () -> Unit) {
       label = "App Store",
       background = Color(0xFF2D6CDF),
       glyph = ICON_DOWNLOAD,
+      onClick = onClick,
+  )
+}
+
+@Composable
+private fun HelpTile(onClick: () -> Unit) {
+  BuiltInTile(
+      label = "Help",
+      background = Color(0xFF5A6470),
+      glyph = ICON_HELP,
       onClick = onClick,
   )
 }

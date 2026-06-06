@@ -1,6 +1,6 @@
 {
-  "versionCode": 21,
-  "versionName": "1.20",
+  "versionCode": 22,
+  "versionName": "1.21",
   "apkUrl": "https://github.com/starbrightlab/immortal/releases/latest/download/immortal.apk",
-  "notes": "Immortal 1.20 — presence-native screensaver. Meta's presence detector stays enabled and Immortal now cooperates with it: while someone is nearby the photo frame runs uninterrupted; when the room empties, battery Portals go to sleep (configurable) and mains Portals keep the frame up. The kit no longer disables presence; re-run --restore-style re-enable or 'pm enable com.facebook.alohaservices.presence' if you applied v1.19."
+  "notes": "Immortal 1.21 — a friendly Help tour. A new Help tile (and a one-time welcome on first launch) walks anyone through Immortal in plain language: getting around, making video calls, the photo frame, the app store and Aurora, what to do after a restart to re-enable installs, the honest limits, and how to join the community on GitHub."
 }

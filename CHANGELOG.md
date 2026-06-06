@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.21 (2026-06-06)
+
+A friendly, non-technical Help tour — so anyone can pick up a Portal running Immortal.
+
+- New **Help** tile on the home screen, and a one-time welcome that opens automatically the first time Immortal starts (it won't nag you again).
+- Eight short, plain-language cards: getting around (and how the home button always brings you back), making video calls via the Calls tile, using the photo frame and your own photos, adding apps from the App Store and Aurora, what to do after a restart to re-enable installs, an honest note on what Immortal can't do, and an invitation to join the community on GitHub.
+- Works with a finger (swipe or tap Next) and with the Portal TV remote (D-pad on Back/Next, BACK to leave).
 ## 1.20 (2026-06-06)
 
 Work WITH Meta's presence detection instead of disabling it.
