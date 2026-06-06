@@ -560,31 +560,29 @@ private fun HeaderBar(onScreensaver: () -> Unit) {
   }
   val battery = batteryState()
 
-  // Layout: the clock is the anchor. Time, the screensaver control, and the
-  // weather share one vertically-centred line; the date tucks directly beneath
-  // the clock. (Previously the control/weather centred on the whole clock+date
-  // block, so they floated below the clock's optical centre.)
-  val clockGutter = 74.dp // screensaver button (56) + its 18dp gap
-  Column(modifier = Modifier.fillMaxWidth()) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-      // Screensaver entry — left, with the stock launcher's stacked-photo icon so
-      // the affordance reads the same as the Portal users already know.
-      Surface(
-          color = Color(0x33FFFFFF),
-          shape = androidx.compose.foundation.shape.CircleShape,
-          modifier = Modifier.size(56.dp).clickable { onScreensaver() },
-      ) {
-        Box(contentAlignment = Alignment.Center) { StackedPhotoIcon() }
-      }
-      Spacer(Modifier.size(18.dp))
-      Text(
-          SimpleDateFormat("h:mm", Locale.getDefault()).format(now),
-          color = Color.White,
-          fontSize = 56.sp,
-          fontWeight = FontWeight.Light,
-          lineHeight = 56.sp,
-      )
-      Spacer(Modifier.weight(1f))
+  // Layout: the big clock anchors the left; the weather and date stack on the
+  // right, right-aligned, so the header reads as a balanced pair of blocks. The
+  // clock and the right-hand stack are centred against each other.
+  Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+    // Screensaver entry — left, with the stock launcher's stacked-photo icon so
+    // the affordance reads the same as the Portal users already know.
+    Surface(
+        color = Color(0x33FFFFFF),
+        shape = androidx.compose.foundation.shape.CircleShape,
+        modifier = Modifier.size(56.dp).clickable { onScreensaver() },
+    ) {
+      Box(contentAlignment = Alignment.Center) { StackedPhotoIcon() }
+    }
+    Spacer(Modifier.size(18.dp))
+    Text(
+        SimpleDateFormat("h:mm", Locale.getDefault()).format(now),
+        color = Color.White,
+        fontSize = 56.sp,
+        fontWeight = FontWeight.Light,
+        lineHeight = 56.sp,
+    )
+    Spacer(Modifier.weight(1f))
+    Column(horizontalAlignment = Alignment.End) {
       Row(
           verticalAlignment = Alignment.CenterVertically,
           horizontalArrangement = Arrangement.spacedBy(18.dp),
@@ -598,13 +596,13 @@ private fun HeaderBar(onScreensaver: () -> Unit) {
           Text(weather, color = Color.White, fontSize = 30.sp)
         }
       }
+      Text(
+          SimpleDateFormat("EEEE, MMMM d", Locale.getDefault()).format(now),
+          color = Color(0xFFDADADA),
+          fontSize = 18.sp,
+          modifier = Modifier.padding(top = 4.dp),
+      )
     }
-    Text(
-        SimpleDateFormat("EEEE, MMMM d", Locale.getDefault()).format(now),
-        color = Color(0xFFDADADA),
-        fontSize = 18.sp,
-        modifier = Modifier.padding(start = clockGutter, top = 4.dp),
-    )
   }
 }
 

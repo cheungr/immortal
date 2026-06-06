@@ -61,6 +61,8 @@ class PhotoFrameController(
   private lateinit var battery: TextView
   private lateinit var date: TextView
   private lateinit var weather: TextView
+  private lateinit var batteryDot: View
+  private lateinit var weatherDot: View
   private var weatherText: String = ""
 
   // Photo history so swipes can go back as well as forward.
@@ -137,13 +139,18 @@ class PhotoFrameController(
 
     val row = LinearLayout(context)
     row.gravity = Gravity.CENTER_VERTICAL
-    battery = text(22f, Color.WHITE, false)
+    // Date is always present; battery and weather are optional. Each optional
+    // field owns the divider that precedes it, so the dot disappears with the
+    // field (no orphaned "•" when a battery-less Portal reports no charge).
     date = text(22f, Color.WHITE, false)
+    battery = text(22f, Color.WHITE, false)
     weather = text(22f, Color.WHITE, false)
-    row.addView(battery)
-    row.addView(divider())
+    batteryDot = divider()
+    weatherDot = divider()
     row.addView(date)
-    row.addView(divider())
+    row.addView(batteryDot)
+    row.addView(battery)
+    row.addView(weatherDot)
     row.addView(weather)
     col.addView(row)
 
@@ -175,8 +182,14 @@ class PhotoFrameController(
           clock.text = SimpleDateFormat("h:mm", Locale.getDefault()).format(now)
           date.text = SimpleDateFormat("EEE, MMM d", Locale.getDefault()).format(now)
           val pct = batteryPct()
-          battery.text = if (pct >= 0) "$pct%" else ""
+          val hasBattery = pct >= 0
+          battery.text = if (hasBattery) "$pct%" else ""
+          battery.visibility = if (hasBattery) View.VISIBLE else View.GONE
+          batteryDot.visibility = if (hasBattery) View.VISIBLE else View.GONE
+          val hasWeather = weatherText.isNotBlank()
           weather.text = weatherText
+          weather.visibility = if (hasWeather) View.VISIBLE else View.GONE
+          weatherDot.visibility = if (hasWeather) View.VISIBLE else View.GONE
           ui.postDelayed(this, 1_000L)
         }
       }
