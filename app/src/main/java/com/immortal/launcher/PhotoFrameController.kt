@@ -201,6 +201,10 @@ class PhotoFrameController(
   private fun batteryPct(): Int {
     val i =
         context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return -1
+    // Only Portal Go has a battery; the mains-powered Portals (Portal+, Mini,
+    // gen-2, TV) report no battery present but still publish a bogus level=0, so
+    // gate on EXTRA_PRESENT to avoid showing a permanent "0%". -1 hides the field.
+    if (!i.getBooleanExtra(BatteryManager.EXTRA_PRESENT, false)) return -1
     val level = i.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
     val scale = i.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
     return if (level >= 0 && scale > 0) level * 100 / scale else -1

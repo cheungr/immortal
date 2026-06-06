@@ -560,44 +560,51 @@ private fun HeaderBar(onScreensaver: () -> Unit) {
   }
   val battery = batteryState()
 
-  Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-    // Screensaver entry — top-left, with the stock launcher's stacked-photo icon
-    // so the affordance reads the same as the Portal users already know.
-    Surface(
-        color = Color(0x33FFFFFF),
-        shape = androidx.compose.foundation.shape.CircleShape,
-        modifier = Modifier.size(56.dp).clickable { onScreensaver() },
-    ) {
-      Box(contentAlignment = Alignment.Center) { StackedPhotoIcon() }
-    }
-    Spacer(Modifier.size(18.dp))
-    Column {
+  // Layout: the clock is the anchor. Time, the screensaver control, and the
+  // weather share one vertically-centred line; the date tucks directly beneath
+  // the clock. (Previously the control/weather centred on the whole clock+date
+  // block, so they floated below the clock's optical centre.)
+  val clockGutter = 74.dp // screensaver button (56) + its 18dp gap
+  Column(modifier = Modifier.fillMaxWidth()) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      // Screensaver entry — left, with the stock launcher's stacked-photo icon so
+      // the affordance reads the same as the Portal users already know.
+      Surface(
+          color = Color(0x33FFFFFF),
+          shape = androidx.compose.foundation.shape.CircleShape,
+          modifier = Modifier.size(56.dp).clickable { onScreensaver() },
+      ) {
+        Box(contentAlignment = Alignment.Center) { StackedPhotoIcon() }
+      }
+      Spacer(Modifier.size(18.dp))
       Text(
           SimpleDateFormat("h:mm", Locale.getDefault()).format(now),
           color = Color.White,
           fontSize = 56.sp,
           fontWeight = FontWeight.Light,
+          lineHeight = 56.sp,
       )
-      Text(
-          SimpleDateFormat("EEEE, MMMM d", Locale.getDefault()).format(now),
-          color = Color(0xFFDADADA),
-          fontSize = 18.sp,
-      )
-    }
-    Spacer(Modifier.weight(1f))
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(18.dp),
-    ) {
-      // Charge level is OPTIONAL — only Portal Go has a battery; mains-powered
-      // Portals report no battery present, so we render nothing for them.
-      if (battery.present) {
-        BatteryIndicator(percent = battery.percent, charging = battery.charging)
-      }
-      if (weather.isNotBlank()) {
-        Text(weather, color = Color.White, fontSize = 30.sp)
+      Spacer(Modifier.weight(1f))
+      Row(
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(18.dp),
+      ) {
+        // Charge level is OPTIONAL — only Portal Go has a battery; mains-powered
+        // Portals report no battery present, so we render nothing for them.
+        if (battery.present) {
+          BatteryIndicator(percent = battery.percent, charging = battery.charging)
+        }
+        if (weather.isNotBlank()) {
+          Text(weather, color = Color.White, fontSize = 30.sp)
+        }
       }
     }
+    Text(
+        SimpleDateFormat("EEEE, MMMM d", Locale.getDefault()).format(now),
+        color = Color(0xFFDADADA),
+        fontSize = 18.sp,
+        modifier = Modifier.padding(start = clockGutter, top = 4.dp),
+    )
   }
 }
 
