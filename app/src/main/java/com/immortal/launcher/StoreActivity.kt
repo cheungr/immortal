@@ -153,6 +153,8 @@ private fun StoreScreen() {
         )
         if (InstallDaemon.installPaused(context)) {
           PausedBanner()
+        } else if (InstallDaemon.silentInstallOffline(context)) {
+          SilentOffBanner()
         }
         Text(
             "📁  Have an APK file? Install it →",
@@ -202,6 +204,33 @@ private fun PausedBanner() {
       Text(
           "On first-gen Portals this happens after a reboot. Connect to your computer and " +
               "run the Immortal installer again to add apps. Everything else keeps working.",
+          style = MaterialTheme.typography.bodySmall,
+          color = Color(0xFFEEEEEE),
+          modifier = Modifier.padding(top = 6.dp),
+      )
+    }
+  }
+}
+
+@Composable
+private fun SilentOffBanner() {
+  Card(
+      modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+      colors = CardDefaults.cardColors(containerColor = Color(0x332E6BE6)),
+  ) {
+    Column(modifier = Modifier.padding(16.dp)) {
+      Text(
+          "Silent install is off",
+          fontSize = 16.sp,
+          fontWeight = FontWeight.SemiBold,
+          color = Color(0xFF9EC1FF),
+      )
+      Text(
+          "The install helper stops after a reboot, so apps now install through the " +
+              "system dialog. Most still install fine; a few (some Play-store apps) show " +
+              "“There was a problem parsing the package.” To restore silent, one-tap " +
+              "installs that work for every app, reconnect to your computer and run the " +
+              "Immortal installer again.",
           style = MaterialTheme.typography.bodySmall,
           color = Color(0xFFEEEEEE),
           modifier = Modifier.padding(top = 6.dp),

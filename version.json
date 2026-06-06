@@ -1,6 +1,6 @@
 {
-  "versionCode": 17,
-  "versionName": "1.16",
+  "versionCode": 18,
+  "versionName": "1.17",
   "apkUrl": "https://github.com/starbrightlab/immortal/releases/latest/download/immortal.apk",
-  "notes": "Immortal 1.16 — Immortal now appears as an app tile on the Portal TV's stock home (ripleyhome). The TV home is an Android-TV launcher that only lists Leanback apps, so Immortal now declares a Leanback launcher entry with a TV banner. Combined with the Calls bridge, you can move between Immortal and the stock home freely."
+  "notes": "Immortal 1.17 — clearer install behaviour on Android 10 (Go/Mini/gen-2). The silent install helper stops after a reboot; when it's down, the store and APK browser now explain that installs have dropped to the system dialog (which can show ‘problem parsing the package’ on some apps) and how to restore silent one-tap installs, instead of failing silently."
 }

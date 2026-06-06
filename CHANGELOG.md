@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.17 (2026-06-06)
+
+Make the Android-10 install experience honest when the silent helper is down.
+
+- Background: Immortal installs apps silently through a small shell-privileged helper (the install daemon). Like all such helpers it does not survive a reboot. On Android-10 Portals (Go/Mini/gen-2) the store was silently falling back to the system installer dialog when the helper was down — and that dialog parse-fails ("There was a problem parsing the package") on some apps (notably Play-store split APKs). It looked like a regression because installs had been silent right after provisioning.
+- The App Store and the "Install an APK" browser now detect the helper being down on Android 10 and show a clear note: installs have dropped to the system dialog, some apps may fail to parse there, and reconnecting + re-running the installer restores silent, one-tap installs that work for every app. (First-gen Portals keep their existing "installs paused" banner.)
+- No change to the happy path: with the helper running, installs are silent and parse-error-free on every model.
+
 ## 1.16 (2026-06-06)
 
 Make Immortal appear as a tile on the Portal TV's stock home (ripleyhome).

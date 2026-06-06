@@ -108,6 +108,7 @@ private fun ApkBrowserScreen() {
             style = MaterialTheme.typography.bodyMedium,
         )
         if (InstallDaemon.installPaused(context)) PausedNote()
+        else if (InstallDaemon.silentInstallOffline(context)) SilentOffNote()
       }
       items(apks, key = { it.file.absolutePath }) { a ->
         ApkRow(a, status[a.file.absolutePath]) {
@@ -142,6 +143,24 @@ private fun PausedNote() {
             "Everything else keeps working.",
         style = MaterialTheme.typography.bodySmall,
         color = Color(0xFFFFD180),
+        modifier = Modifier.padding(16.dp),
+    )
+  }
+}
+
+@Composable
+private fun SilentOffNote() {
+  Card(
+      modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+      colors = CardDefaults.cardColors(containerColor = Color(0x332E6BE6)),
+  ) {
+    Text(
+        "Silent install is off (the helper stops after a reboot), so APKs install through " +
+            "the system dialog — and some may show “There was a problem parsing the package.” " +
+            "Reconnect to your computer and run the Immortal installer again to restore " +
+            "silent, one-tap installs.",
+        style = MaterialTheme.typography.bodySmall,
+        color = Color(0xFF9EC1FF),
         modifier = Modifier.padding(16.dp),
     )
   }
