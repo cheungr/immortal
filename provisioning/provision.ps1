@@ -137,10 +137,19 @@ function Start-Installd {
   A push installd.sh /data/local/tmp/installd.sh | Out-Null
   A shell "chmod 755 /data/local/tmp/installd.sh" | Out-Null
   A shell 'me=$$; for d in /proc/[0-9]*; do p=${d#/proc/}; [ "$p" = "$me" ] && continue; c=$(cat "$d/cmdline" 2>/dev/null | tr "\0" " "); case "$c" in *installd.sh*) kill "$p" 2>/dev/null;; esac; done' | Out-Null
+  # Remove any stale heartbeat so the check below can only pass on a FRESH one
+  # from the daemon we're about to start.
+  A shell "rm -f /sdcard/Android/data/$($cfg['PKG'])/files/installq/.heartbeat" | Out-Null
   A shell "setsid sh /data/local/tmp/installd.sh /sdcard/Android/data/$($cfg['PKG'])/files/installq >/dev/null 2>&1 &" | Out-Null
-  Start-Sleep -Seconds 2
-  $hb = (A shell "cat /sdcard/Android/data/$($cfg['PKG'])/files/installq/.heartbeat 2>/dev/null")
-  if ($hb -match '[0-9]') { Ok "Silent-install daemon running" } else { Warn "Daemon didn't report a heartbeat (the store will fall back to the system installer)" }
+  # The first heartbeat can take a few seconds on a busy device (right after an
+  # app install the FUSE/package services are still churning), so poll instead
+  # of a single fixed-sleep check - a one-shot probe here used to false-fail.
+  for ($i = 0; $i -lt 15; $i++) {
+    $hb = (A shell "cat /sdcard/Android/data/$($cfg['PKG'])/files/installq/.heartbeat 2>/dev/null")
+    if ($hb -match '[0-9]') { Ok "Silent-install daemon running"; return }
+    Start-Sleep -Seconds 1
+  }
+  Warn "Daemon didn't report a heartbeat (the store will fall back to the system installer)"
 }
 function Start-Shizuku {
   # Lets third-party stores (Aurora's Shizuku installer) install silently on the

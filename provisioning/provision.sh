@@ -180,13 +180,23 @@ start_installd() {
   # process as "sh", not the script path, so scan /proc/*/cmdline instead;
   # exclude our own shell so the scan doesn't kill itself.)
   a shell 'me=$$; for d in /proc/[0-9]*; do p=${d#/proc/}; [ "$p" = "$me" ] && continue; c=$(cat "$d/cmdline" 2>/dev/null | tr "\0" " "); case "$c" in *installd.sh*) kill "$p" 2>/dev/null;; esac; done' >/dev/null 2>&1
+  # Remove any stale heartbeat so the check below can only pass on a FRESH one
+  # from the daemon we're about to start.
+  a shell "rm -f /sdcard/Android/data/$PKG/files/installq/.heartbeat" >/dev/null 2>&1
   a shell "setsid sh /data/local/tmp/installd.sh /sdcard/Android/data/$PKG/files/installq >/dev/null 2>&1 &" >/dev/null 2>&1
-  sleep 2
-  if a shell "cat /sdcard/Android/data/$PKG/files/installq/.heartbeat 2>/dev/null" | grep -q '[0-9]'; then
-    ok "Silent-install daemon running"
-  else
-    warn "Daemon didn't report a heartbeat (the store will fall back to the system installer)"
-  fi
+  # The first heartbeat can take a few seconds on a busy device (right after an
+  # app install the FUSE/package services are still churning), so poll instead
+  # of a single fixed-sleep check — a one-shot probe here used to false-fail.
+  local hb_try=0
+  while [ "$hb_try" -lt 15 ]; do
+    if a shell "cat /sdcard/Android/data/$PKG/files/installq/.heartbeat 2>/dev/null" | grep -q '[0-9]'; then
+      ok "Silent-install daemon running"
+      return
+    fi
+    hb_try=$((hb_try + 1))
+    sleep 1
+  done
+  warn "Daemon didn't report a heartbeat (the store will fall back to the system installer)"
 }
 
 start_shizuku() {
