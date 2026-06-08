@@ -26,3 +26,10 @@ _chk*.png
 
 # Internal strategy/planning notes — never publish.
 _planning/
+
+# Reverse-engineering research — never publish (repo is public). Decompilation
+# working dir, APKs pulled off the device, and internal findings docs.
+apk_work/
+system_services.apk
+*.apk
+docs/
