@@ -552,22 +552,33 @@ restore_alexa() {
   a shell pm path "$MP" >/dev/null 2>&1 && a shell pm grant "$MP" android.permission.RECORD_AUDIO >/dev/null 2>&1
 
   # 5. Launch falcon, guide the Amazon account link, wait for ReadyState.
+  #
+  # Two cases: an ALREADY-linked Portal reconnects on the first launch (ReadyState in seconds).
+  # A FRESH Portal needs the on-screen Amazon sign-in, AND — once signed in — falcon's first
+  # launch parks in DisconnectState and won't establish the AVS connection on its own; a single
+  # restart kicks it (then ReadyState in ~5s). So we wait in cycles and force-stop+relaunch falcon
+  # between cycles: that catches the fresh case after the user finishes signing in, and is a no-op
+  # for the already-linked case (which connects in cycle 1 before any restart).
   step "Launching falcon to connect"
-  a shell am start -n "$SIM" >/dev/null 2>&1
   printf "  %sIf this Portal isn't linked to your Amazon account yet, finish the on-screen Alexa\n  sign-in now.%s (Already-linked devices reconnect automatically.)\n" "$Y" "$N"
   printf "  %sWaiting for Alexa to connect (needs Wi-Fi + a linked account)…%s\n" "$D" "$N"
-  a logcat -c >/dev/null 2>&1 || true
-  local i ready=0
-  for i in $(seq 1 24); do
-    if a logcat -d 2>/dev/null | grep -q 'in ReadyState'; then ready=1; break; fi
-    sleep 5
+  local cycle i ready=0
+  for cycle in 1 2 3; do
+    [ "$cycle" -gt 1 ] && a shell am force-stop "$FP" >/dev/null 2>&1   # kick a freshly-linked falcon out of DisconnectState
+    a logcat -c >/dev/null 2>&1 || true
+    a shell am start -n "$SIM" >/dev/null 2>&1
+    for i in $(seq 1 12); do
+      if a logcat -d 2>/dev/null | grep -q 'in ReadyState'; then ready=1; break; fi
+      sleep 5
+    done
+    [ "$ready" = 1 ] && break
   done
   if [ "$ready" = 1 ]; then
     a shell pm path "$MP" >/dev/null 2>&1 && a shell am start -n "$MP/com.millennium.ui.HeyActivity" >/dev/null 2>&1
     ok "Alexa connected (ReadyState) — say \"Hey Alexa, what's the weather?\""
     printf "  %sOnce linked, you can hide falcon's icon from the launcher — it runs headless.%s\n" "$D" "$N"
   else
-    warn "Alexa didn't connect within ~2 min. Check Wi-Fi + that the Amazon account is linked, then re-run './provision.sh --alexa'."
+    warn "Alexa didn't connect within ~3 min. Check Wi-Fi + that the Amazon account is linked, then re-run './provision.sh --alexa'."
   fi
 }
 

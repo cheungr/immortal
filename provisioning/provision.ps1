@@ -423,22 +423,30 @@ function Restore-Alexa {
   if ("$(A shell pm path $mp)".Trim()) { A shell pm grant $mp android.permission.RECORD_AUDIO | Out-Null }
 
   # 5. Launch falcon, guide the Amazon account link, wait for ReadyState.
+  # Already-linked Portals reconnect on first launch. A FRESH Portal needs the on-screen sign-in,
+  # and once signed in falcon's first launch parks in DisconnectState until restarted - so we wait
+  # in cycles and force-stop+relaunch falcon between cycles (a no-op for already-linked, which
+  # connects in cycle 1 before any restart). See the bash provision.sh for the full rationale.
   Step "Launching falcon to connect"
-  A shell am start -n $sim | Out-Null
   Warn "If this Portal isn't linked to your Amazon account yet, finish the on-screen Alexa sign-in now. (Already-linked devices reconnect automatically.)"
   Write-Host "  Waiting for Alexa to connect (needs Wi-Fi + a linked account)..." -ForegroundColor DarkGray
-  A logcat -c | Out-Null
   $ready = $false
-  for ($i = 0; $i -lt 24; $i++) {
-    if (A logcat -d | Select-String "in ReadyState" -Quiet) { $ready = $true; break }
-    Start-Sleep -Seconds 5
+  foreach ($cycle in 1..3) {
+    if ($cycle -gt 1) { A shell am force-stop $fp | Out-Null }   # kick a freshly-linked falcon out of DisconnectState
+    A logcat -c | Out-Null
+    A shell am start -n $sim | Out-Null
+    for ($i = 0; $i -lt 12; $i++) {
+      if (A logcat -d | Select-String "in ReadyState" -Quiet) { $ready = $true; break }
+      Start-Sleep -Seconds 5
+    }
+    if ($ready) { break }
   }
   if ($ready) {
     if ("$(A shell pm path $mp)".Trim()) { A shell am start -n "$mp/com.millennium.ui.HeyActivity" | Out-Null }
     Ok "Alexa connected (ReadyState) - say 'Hey Alexa, what's the weather?'"
     Write-Host "  Once linked, you can hide falcon's icon from the launcher - it runs headless." -ForegroundColor DarkGray
   } else {
-    Warn "Alexa didn't connect within ~2 min. Check Wi-Fi + that the Amazon account is linked, then re-run with -Alexa."
+    Warn "Alexa didn't connect within ~3 min. Check Wi-Fi + that the Amazon account is linked, then re-run with -Alexa."
   }
 }
 
