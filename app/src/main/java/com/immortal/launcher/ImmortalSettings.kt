@@ -49,6 +49,9 @@ object ImmortalSettings {
       // Mini-player in the home header (cover art + controls), shown only while
       // something is actually playing. Defaults on — useful to everyone, unobtrusive.
       val showMiniPlayer: Boolean = true,
+      // Hide the system status bar (immersive). Default on — the clean wall-frame look,
+      // and what provisioning seeds; swipe from the top still reveals it transiently.
+      val hideStatusBar: Boolean = true,
       // Multi-room audio: when this Portal is a Snapcast speaker, surface what the
       // group is playing on the now-playing card (read from the Music Assistant /
       // snapserver at [snapcastHost]). Off until configured.
@@ -70,6 +73,7 @@ object ImmortalSettings {
         weatherWidget = p.getString("weather_widget", WIDGET_OFF) ?: WIDGET_OFF,
         clockFormat = p.getString("clock_format", CLOCK_AUTO) ?: CLOCK_AUTO,
         showMiniPlayer = p.getBoolean("show_mini_player", true),
+        hideStatusBar = p.getBoolean("hide_status_bar", true),
         multiRoomEnabled = p.getBoolean("multiroom_enabled", false),
         snapcastHost = p.getString("snapcast_host", "") ?: "",
         maUsername = p.getString("ma_username", "") ?: "",
@@ -109,6 +113,11 @@ object ImmortalSettings {
 
   fun setShowMiniPlayer(c: Context, on: Boolean) =
       prefs(c).edit().putBoolean("show_mini_player", on).apply()
+
+  fun hideStatusBar(c: Context): Boolean = prefs(c).getBoolean("hide_status_bar", true)
+
+  fun setHideStatusBar(c: Context, on: Boolean) =
+      prefs(c).edit().putBoolean("hide_status_bar", on).apply()
 
   /**
    * Whether the clock should render in 24-hour form. AUTO follows the device's

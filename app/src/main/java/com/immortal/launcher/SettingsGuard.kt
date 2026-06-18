@@ -37,6 +37,21 @@ object SettingsGuard {
     }
   }
 
+  /**
+   * Hide or show the system status bar per [ImmortalSettings.hideStatusBar]. Hiding uses
+   * the immersive `policy_control` (swipe from the top still reveals it briefly); showing
+   * clears it. `Settings.Global`, so needs `WRITE_SECURE_SETTINGS` (provisioning grants
+   * it) — a silent no-op without it. Applied on startup and whenever the toggle changes.
+   */
+  fun applyStatusBar(context: Context) {
+    runCatching {
+      Settings.Global.putString(
+          context.contentResolver,
+          "policy_control",
+          if (ImmortalSettings.hideStatusBar(context)) "immersive.status=*" else null)
+    }
+  }
+
   fun reaffirmScreensaver(context: Context) {
     runCatching {
       val resolver = context.contentResolver

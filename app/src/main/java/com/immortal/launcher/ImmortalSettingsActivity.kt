@@ -254,6 +254,32 @@ private fun SettingsMain(bootCount: Int, onOpenBootApps: () -> Unit, onOpenMulti
               },
           )
         }
+        Divider()
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+          Column(modifier = Modifier.weight(1f)) {
+            Text("Status bar", color = Color.White, fontSize = 17.sp)
+            Text(
+                "Hidden by default for a cleaner full-screen look. Swipe down from the top " +
+                    "to reveal it briefly.",
+                color = Color(0xFF9A9A9A),
+                fontSize = 13.sp,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+          }
+          Segmented(
+              options = listOf("Show" to "show", "Hide" to "hide"),
+              selected = if (settings.hideStatusBar) "hide" else "show",
+              onSelect = {
+                val hide = it == "hide"
+                ImmortalSettings.setHideStatusBar(context, hide)
+                settings = settings.copy(hideStatusBar = hide)
+                SettingsGuard.applyStatusBar(context)
+              },
+          )
+        }
       }
 
       Spacer(Modifier.size(26.dp))
@@ -293,6 +319,8 @@ private fun SettingsMain(bootCount: Int, onOpenBootApps: () -> Unit, onOpenMulti
 
       Spacer(Modifier.size(26.dp))
       BootAppsNavRow(count = bootCount, onOpen = onOpenBootApps)
+
+      DeviceAdminRow()
 
       Text(
           "Changes apply as soon as you go back to the home screen.",
@@ -607,6 +635,54 @@ private fun loadLaunchableApps(context: Context): List<BootAppOption> {
       }
       .distinctBy { it.pkg }
       .sortedBy { it.label.lowercase(Locale.getDefault()) }
+}
+
+/**
+ * Shown only when Immortal's screen-off device admin is active. Deactivating it turns off
+ * the idle / overnight screen-off features AND lets Immortal be uninstalled — the shell
+ * can't force-remove a non-test admin, so this in-app action is the clean path.
+ */
+@Composable
+private fun DeviceAdminRow() {
+  val context = LocalContext.current
+  var active by remember { mutableStateOf(ScreenControl.isAdminActive(context)) }
+  if (!active) return
+
+  Spacer(Modifier.size(26.dp))
+  SectionLabel("Device admin")
+  Card {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Column(modifier = Modifier.weight(1f)) {
+        Text("Screen-off control", color = Color.White, fontSize = 17.sp)
+        Text(
+            "Lets Immortal turn the screen off for idle and overnight sleep. Turning it off " +
+                "also allows Immortal to be uninstalled.",
+            color = Color(0xFF9A9A9A),
+            fontSize = 13.sp,
+            modifier = Modifier.padding(top = 2.dp),
+        )
+      }
+      Surface(
+          color = Color(0xFF3A3A3C),
+          shape = RoundedCornerShape(10.dp),
+          modifier =
+              Modifier.padding(start = 12.dp).tvFocusable(RoundedCornerShape(10.dp)) {
+                ScreenControl.deactivateAdmin(context)
+                active = ScreenControl.isAdminActive(context)
+              },
+      ) {
+        Text(
+            "Turn off",
+            color = Color.White,
+            fontSize = 15.sp,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+        )
+      }
+    }
+  }
 }
 
 /**

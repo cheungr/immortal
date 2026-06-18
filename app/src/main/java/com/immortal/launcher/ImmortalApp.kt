@@ -42,6 +42,9 @@ class ImmortalApp : Application() {
         }
     registerReceiver(receiver, IntentFilter(Intent.ACTION_DREAMING_STOPPED))
 
+    // Apply the user's status-bar choice (default hidden — the wall-frame look).
+    SettingsGuard.applyStatusBar(this)
+
     // Arm the overnight screen-off window (and apply it if we're inside it now).
     SleepScheduler.applyOvernightNow(this)
 
