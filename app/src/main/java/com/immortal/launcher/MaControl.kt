@@ -60,7 +60,12 @@ object MaControl {
       try {
         ws.readText()
         token = null // force a fresh login so we actually test the typed credentials
-        authStatus(if (authorize(ws, user, pass)) "Signed in to Music Assistant ✓" else "Invalid username or password")
+        val ok = authorize(ws, user, pass)
+        authStatus(if (ok) "Signed in to Music Assistant ✓" else "Invalid username or password")
+        // Sign-in is the last piece of setup, so kick the relay now that the config is
+        // complete — same as the Apply button. Without this the service stays as it was
+        // (often stuck "Connecting…") until the app is restarted.
+        if (ok) main.post { MultiRoomService.sync(context.applicationContext) }
       } finally {
         ws.close()
       }
