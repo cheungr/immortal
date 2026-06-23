@@ -47,4 +47,22 @@ class UserLayoutTest {
     assertTrue(UserLayout.deserialize("not json at all").isEmpty())
     assertTrue(UserLayout.deserialize("").isEmpty())
   }
+
+  @Test
+  fun order_serialize_deserialize_roundTripsDistinctIds() {
+    val order = listOf("com.a", "com.b", "com.a", "com.c")
+    assertEquals(listOf("com.a", "com.b", "com.c"), UserLayout.deserializeOrder(UserLayout.serializeOrder(order)))
+  }
+
+  @Test
+  fun applyOrder_keepsUnknownAndNewItemsStable() {
+    val apps = listOf("a", "b", "c")
+    assertEquals(listOf("c", "a", "b"), UserLayout.applyOrder(apps, listOf("c", "missing", "a")) { it })
+  }
+
+  @Test
+  fun moveOrder_movesSourceBeforeTarget() {
+    assertEquals(listOf("a", "c", "b"), UserLayout.moveOrder(listOf("a", "b", "c"), "c", "b"))
+    assertEquals(listOf("b", "a", "c"), UserLayout.moveOrder(listOf("a", "b", "c"), "a", "b"))
+  }
 }

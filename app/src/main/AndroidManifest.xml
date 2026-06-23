@@ -50,6 +50,11 @@
          WiFi). With requestLegacyExternalStorage it governs legacy write access on
          these Android-10 Portals. Granted by provisioning. -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <!-- Home-screen widgets: normal apps cannot hold this directly, so Android
+         shows the one-time ACTION_APPWIDGET_BIND consent dialog the first time
+         Immortal hosts a widget. -->
+    <uses-permission android:name="android.permission.BIND_APPWIDGET"
+        tools:ignore="ProtectedPermissions" />
 
     <!-- "hey" trigger guard. Millennium's TriggerReceiver requires this permission, so only
          the launcher may fire the push-to-talk trigger (not arbitrary apps). It's signature-
@@ -166,6 +171,7 @@
         <activity android:name=".MultiRoomActivity" android:exported="false" android:theme="@style/Theme.SampleApp" />
         <activity android:name=".MqttActivity" android:exported="false" android:theme="@style/Theme.SampleApp" />
         <activity android:name=".DeviceHealthActivity" android:exported="false" android:theme="@style/Theme.SampleApp" />
+        <activity android:name=".WorldClockActivity" android:exported="false" android:theme="@style/Theme.SampleApp" />
         <activity android:name=".BootAppsActivity" android:exported="false" android:theme="@style/Theme.SampleApp" />
 
         <!-- Connect a self-hosted Immich server as the screensaver source. -->
@@ -302,6 +308,13 @@
         <!-- Internal alarms for the idle and overnight screen-off features. -->
         <receiver
             android:name=".SleepReceiver"
+            android:exported="false" />
+
+        <!-- Timer "time's up" alarm: an exact AlarmManager alarm fires here when a
+             countdown started in the Timers widget reaches zero, so it rings even if
+             neither the home screen nor the screensaver is in the foreground. -->
+        <receiver
+            android:name=".TimerAlarmReceiver"
             android:exported="false" />
 
         <!-- WiFi fleet-management agent. Reached over the LAN by the laptop tool;

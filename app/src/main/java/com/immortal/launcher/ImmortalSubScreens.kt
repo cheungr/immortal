@@ -44,6 +44,13 @@ class DeviceHealthActivity : ComponentActivity() {
   }
 }
 
+class WorldClockActivity : ComponentActivity() {
+  override fun onCreate(savedInstanceState: Bundle?) {
+    super.onCreate(savedInstanceState)
+    setContent { SampleAppTheme(darkTheme = true) { WorldClockScreen(onBack = { finish() }) } }
+  }
+}
+
 class BootAppsActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)

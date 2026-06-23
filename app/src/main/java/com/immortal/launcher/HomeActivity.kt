@@ -7,6 +7,10 @@
 
 package com.immortal.launcher
 
+import android.app.Activity
+import android.appwidget.AppWidgetHost
+import android.appwidget.AppWidgetManager
+import android.appwidget.AppWidgetProviderInfo
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -14,12 +18,21 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.BatteryManager
 import android.os.Bundle
+import android.util.TypedValue
 import android.view.MotionEvent
+import android.view.ViewGroup
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import android.content.pm.PackageInstaller
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.StartOffset
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -35,14 +48,22 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -50,6 +71,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -81,16 +103,20 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.TextStyle
@@ -102,8 +128,10 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import kotlin.math.abs
 import kotlin.math.roundToInt
 import androidx.core.graphics.drawable.toBitmap
 import androidx.core.view.WindowCompat
@@ -115,9 +143,11 @@ import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 
 private data class AppEntry(
@@ -127,10 +157,26 @@ private data class AppEntry(
     val folder: String? = null,
 )
 
+private data class WidgetProviderEntry(
+    val label: String,
+    val packageLabel: String,
+    val icon: ImageBitmap?,
+    val info: AppWidgetProviderInfo?,
+    val spanX: Int,
+    val spanY: Int,
+    val customKind: String? = null,
+)
+
+private data class PendingWidgetAdd(
+    val appWidgetId: Int,
+    val provider: WidgetProviderEntry,
+)
+
 /** Calls→stock-home bridge: how many system Back presses reach Meta's launcher, and the gap
  *  between them (verified on the Portal TV — 5 presses lands on the stock launcher's Apps tab). */
 private const val STOCK_HOME_BACK_PRESSES = 5
 private const val STOCK_HOME_BACK_INTERVAL_MS = 300L
+private const val HOME_APP_WIDGET_HOST_ID = 0x4611
 
 /**
  * The custom Portal home launcher. Replaces the stock Aloha home (selected via
@@ -335,6 +381,16 @@ private fun LauncherScreen(
       }
   var editMode by remember { mutableStateOf(false) }
   var openFolder by remember { mutableStateOf<String?>(null) }
+  var showWidgetPicker by remember { mutableStateOf(false) }
+  var widgetStatus by remember { mutableStateOf<String?>(null) }
+  var widgets by remember { mutableStateOf(HomeWidgetStore.load(context)) }
+  // Whether the shared timer is currently ringing — drives the swipe-to-stop alarm overlay.
+  var timerRinging by remember { mutableStateOf(TimerStore.load(context).ringing) }
+  DisposableEffect(Unit) {
+    val l: () -> Unit = { timerRinging = TimerStore.load(context).ringing }
+    TimerStore.addListener(l)
+    onDispose { TimerStore.removeListener(l) }
+  }
 
   // Immortal Settings the home screen reflects (tile size, and the optional weather
   // widget's mode/unit), re-read on resume so a change applies the moment the user
@@ -343,6 +399,14 @@ private fun LauncherScreen(
   var weatherWidget by remember { mutableStateOf(ImmortalSettings.load(context).weatherWidget) }
   var weatherFahrenheit by remember { mutableStateOf(ImmortalSettings.useFahrenheit(context)) }
   val lifecycleOwner = LocalLifecycleOwner.current
+  val appWidgetManager = remember(context) { AppWidgetManager.getInstance(context) }
+  val appWidgetHost = remember(context) { AppWidgetHost(context, HOME_APP_WIDGET_HOST_ID) }
+  fun loadLiveWidgets(): List<HomeWidgetStore.HomeWidget> {
+    val loaded = HomeWidgetStore.load(context)
+    val live = loaded.filterLiveWidgets(appWidgetManager, appWidgetHost)
+    if (live.size != loaded.size) HomeWidgetStore.save(context, live)
+    return live
+  }
   DisposableEffect(lifecycleOwner) {
     val obs = LifecycleEventObserver { _, e ->
       if (e == Lifecycle.Event.ON_RESUME) {
@@ -350,10 +414,159 @@ private fun LauncherScreen(
         tileSize = s.tileSize
         weatherWidget = s.weatherWidget
         weatherFahrenheit = ImmortalSettings.useFahrenheit(context)
+        widgets = loadLiveWidgets()
       }
     }
     lifecycleOwner.lifecycle.addObserver(obs)
     onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+  }
+  DisposableEffect(lifecycleOwner, appWidgetHost) {
+    val obs = LifecycleEventObserver { _, e ->
+      when (e) {
+        Lifecycle.Event.ON_START -> runCatching { appWidgetHost.startListening() }
+        Lifecycle.Event.ON_STOP -> runCatching { appWidgetHost.stopListening() }
+        else -> Unit
+      }
+    }
+    lifecycleOwner.lifecycle.addObserver(obs)
+    runCatching { appWidgetHost.startListening() }
+    val live = widgets.filterLiveWidgets(appWidgetManager, appWidgetHost)
+    if (live.size != widgets.size) HomeWidgetStore.save(context, live)
+    widgets = live
+    onDispose {
+      lifecycleOwner.lifecycle.removeObserver(obs)
+      runCatching { appWidgetHost.stopListening() }
+    }
+  }
+
+  fun saveWidgets(next: List<HomeWidgetStore.HomeWidget>) {
+    widgets = next
+    HomeWidgetStore.save(context, next)
+  }
+
+  fun removeWidget(widget: HomeWidgetStore.HomeWidget) {
+    if (widget.isAppWidget) runCatching { appWidgetHost.deleteAppWidgetId(widget.appWidgetId) }
+    saveWidgets(HomeWidgetStore.without(widgets, widget.key))
+    widgetStatus = "Widget removed"
+  }
+
+  fun addCustomWidget(kind: String) {
+    val widget =
+        when (kind) {
+          HomeWidgetStore.KIND_TIMERS -> HomeWidgetStore.custom(kind, spanX = 2, spanY = 2)
+          else -> HomeWidgetStore.custom(kind, spanX = 2, spanY = 2)
+        }
+    saveWidgets(HomeWidgetStore.withAdded(widgets, widget))
+    showWidgetPicker = false
+    widgetStatus = "Added ${customWidgetLabel(kind)}"
+  }
+
+  fun commitWidget(pending: PendingWidgetAdd) {
+    val provider = pending.provider
+    val info = provider.info ?: return
+    val record =
+        HomeWidgetStore.HomeWidget(
+            appWidgetId = pending.appWidgetId,
+            providerPackage = info.provider.packageName,
+            providerClass = info.provider.className,
+            spanX = provider.spanX,
+            spanY = provider.spanY,
+        )
+    updateWidgetSizeOptions(appWidgetManager, record, tileDpFor(tileSize))
+    saveWidgets(HomeWidgetStore.withAdded(widgets, record))
+    showWidgetPicker = false
+    widgetStatus = "Added ${provider.label}"
+  }
+
+  var pendingBind by remember { mutableStateOf<PendingWidgetAdd?>(null) }
+  var pendingConfig by remember { mutableStateOf<PendingWidgetAdd?>(null) }
+  val configLauncher =
+      rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val pending = pendingConfig ?: return@rememberLauncherForActivityResult
+        pendingConfig = null
+        if (result.resultCode == Activity.RESULT_OK) {
+          commitWidget(pending)
+        } else {
+          runCatching { appWidgetHost.deleteAppWidgetId(pending.appWidgetId) }
+          widgetStatus = "Widget setup was cancelled"
+        }
+      }
+
+  fun configureOrCommit(pending: PendingWidgetAdd) {
+    val info = pending.provider.info ?: return
+    val configure = info.configure
+    if (configure != null) {
+      pendingConfig = pending
+      val launched =
+          runCatching {
+                configLauncher.launch(
+                    Intent(AppWidgetManager.ACTION_APPWIDGET_CONFIGURE)
+                        .setComponent(configure)
+                        .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, pending.appWidgetId))
+                true
+              }
+              .getOrDefault(false)
+      if (!launched) {
+        pendingConfig = null
+        runCatching { appWidgetHost.deleteAppWidgetId(pending.appWidgetId) }
+        widgetStatus = "Widget setup could not open"
+      }
+    } else {
+      commitWidget(pending)
+    }
+  }
+
+  val bindLauncher =
+      rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val pending = pendingBind ?: return@rememberLauncherForActivityResult
+        pendingBind = null
+        if (result.resultCode == Activity.RESULT_OK) {
+          configureOrCommit(pending)
+        } else {
+          runCatching { appWidgetHost.deleteAppWidgetId(pending.appWidgetId) }
+          widgetStatus = "Widget permission was cancelled"
+        }
+      }
+
+  fun addWidget(provider: WidgetProviderEntry) {
+    provider.customKind?.let {
+      addCustomWidget(it)
+      return
+    }
+    val info = provider.info ?: return
+    val appWidgetId =
+        runCatching { appWidgetHost.allocateAppWidgetId() }
+            .getOrElse {
+              widgetStatus = "Widget host could not allocate an ID"
+              return
+            }
+    val pending = PendingWidgetAdd(appWidgetId, provider)
+    val bound =
+        runCatching {
+              appWidgetManager.bindAppWidgetIdIfAllowed(appWidgetId, info.provider)
+            }
+            .getOrDefault(false)
+    if (bound) {
+      configureOrCommit(pending)
+      return
+    }
+
+    pendingBind = pending
+    widgetStatus = "Allow Immortal to add widgets in the system dialog."
+    val launched =
+        runCatching {
+              bindLauncher.launch(
+                  Intent(AppWidgetManager.ACTION_APPWIDGET_BIND)
+                      .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+                      .putExtra(AppWidgetManager.EXTRA_APPWIDGET_PROVIDER, info.provider))
+              true
+            }
+            .getOrDefault(false)
+    if (!launched) {
+      pendingBind = null
+      runCatching { appWidgetHost.deleteAppWidgetId(appWidgetId) }
+      widgetStatus = "Android's widget permission dialog could not open"
+    }
   }
 
   // Remote support: land focus on the grid at startup so the D-pad works on the TV.
@@ -377,11 +590,47 @@ private fun LauncherScreen(
   val ungrouped = remember(appsEff) { appsEff.filter { it.folder == null } }
   val folderNames = remember(appsEff) { appsEff.mapNotNull { it.folder }.distinct().sorted() }
 
-  // --- drag-and-drop folder management (Manage mode) --------------------------
-  val tileBounds = remember { mutableStateMapOf<String, Rect>() }
-  var containerOrigin by remember { mutableStateOf(Offset.Zero) }
-  var dragPkg by remember { mutableStateOf<String?>(null) }
+  // --- unified, fully-reorderable home grid -----------------------------------
+  // Every top-level tile — built-ins, widgets, folders, and ungrouped apps — has a stable key and
+  // lives in one ordered list, so ALL of them can be dragged (not just apps).
+  val allTileKeys =
+      remember(widgets, folderNames, ungrouped) {
+        buildList {
+          add(BUILTIN_CALLS)
+          add(BUILTIN_STORE)
+          widgets.forEach { add(WIDGET_KEY + it.key) }
+          folderNames.forEach { add(FOLDER_KEY + it) }
+          ungrouped.forEach { add(APP_KEY + it.component.packageName) }
+          add(BUILTIN_UPDATES)
+        }
+      }
+  var gridSlots by remember { mutableStateOf(UserLayout.loadGridSlots(context)) }
+  val gridColumns = gridColumnsFor(tileSize)
+  // Keep the saved slot list in step with what's actually present, preserving the user's blanks.
+  LaunchedEffect(allTileKeys, gridColumns) {
+    val normalized = HomeGrid.normalizeSlots(gridSlots, allTileKeys, gridColumns)
+    if (normalized != gridSlots) {
+      gridSlots = normalized
+      UserLayout.saveGridSlots(context, normalized)
+    }
+  }
+  val widgetByKey = remember(widgets) { widgets.associateBy { WIDGET_KEY + it.key } }
+  val appByKey = remember(ungrouped) { ungrouped.associateBy { APP_KEY + it.component.packageName } }
+  // A tile's column footprint: widgets span their width, everything else is 1.
+  fun widthOf(key: String?): Int =
+      if (key != null && key.startsWith(WIDGET_KEY))
+          (widgetByKey[key]?.spanX ?: 1).coerceIn(1, gridColumns)
+      else 1
+
+  // --- drag-and-drop (Manage mode): free placement over a fixed slot grid ------
+  val slotBounds = remember { mutableStateMapOf<Int, Rect>() }
+  var dragKey by remember { mutableStateOf<String?>(null) }
   var dragPos by remember { mutableStateOf(Offset.Zero) }
+  var dragOriginalSlots by remember { mutableStateOf<List<String?>?>(null) }
+  // The drag gesture lives on a stable container that wraps the pager (not on the tile), so it
+  // survives page flips — that's what lets a tile be dragged onto a different page.
+  var containerOrigin by remember { mutableStateOf(Offset.Zero) }
+  var containerDragging by remember { mutableStateOf(false) }
   // Pending folder creation awaiting a name (source+target packages).
   var pendingPair by remember { mutableStateOf<Pair<String, String>?>(null) }
   // Folder currently being renamed.
@@ -415,15 +664,99 @@ private fun LauncherScreen(
     persist()
     if (remaining.size <= 1) openFolder = null
   }
-  fun onDrop(sourcePkg: String, targetKey: String?) {
-    if (targetKey == null) return
-    when {
-      targetKey.startsWith(FOLDER_KEY) -> assign(sourcePkg, targetKey.removePrefix(FOLDER_KEY))
-      targetKey.startsWith(APP_KEY) -> {
-        val targetPkg = targetKey.removePrefix(APP_KEY)
-        if (targetPkg == sourcePkg) return
-        pendingPair = sourcePkg to targetPkg // ask for a name first
+  fun targetSlotAt(pos: Offset): Int? =
+      slotBounds.entries.firstOrNull { it.value.contains(pos) }?.key
+
+  // --- horizontal paging (iOS-style swipeable app pages) ----------------------
+  var pageCapacity by remember { mutableStateOf(1) }
+  val pageCount = ((gridSlots.size + pageCapacity - 1) / pageCapacity).coerceAtLeast(1)
+  val pagerState = rememberPagerState { pageCount }
+  // While dragging, drift toward the screen edge auto-advances to the next/previous page.
+  var edgeDir by remember { mutableStateOf(0) }
+
+  fun startTileDrag(key: String, win: Offset) {
+    // Long-pressing a tile enters Manage mode AND begins dragging it in the same gesture, so the
+    // user doesn't have to lift and press again.
+    if (!editMode) editMode = true
+    dragKey = key
+    dragPos = win
+    dragOriginalSlots = gridSlots
+  }
+  fun moveTileDrag(amount: Offset) {
+    val dm = context.resources.displayMetrics
+    val screenW = dm.widthPixels.toFloat()
+    val screenH = dm.heightPixels.toFloat()
+    // Clamp to the screen so a finger riding the very edge (or briefly off it) still maps to the
+    // edge column instead of drifting into nowhere — keeps target detection and edge-flip working.
+    dragPos =
+        Offset(
+            (dragPos.x + amount.x).coerceIn(0f, screenW),
+            (dragPos.y + amount.y).coerceIn(0f, screenH),
+        )
+    edgeDir =
+        when {
+          dragPos.x > screenW * 0.86f -> 1
+          dragPos.x < screenW * 0.14f -> -1
+          else -> 0
+        }
+    val src = dragKey ?: return
+    val srcIdx = gridSlots.indexOf(src)
+    if (srcIdx < 0) return
+    val tgtIdx = targetSlotAt(dragPos) ?: return
+    if (tgtIdx == srcIdx) return
+    // Hovering an app over a folder files it in (handled on drop) — don't live-swap into it.
+    val tgt = gridSlots.getOrNull(tgtIdx)
+    if (src.startsWith(APP_KEY) && tgt != null && tgt.startsWith(FOLDER_KEY)) return
+    val next = HomeGrid.swap(gridSlots, srcIdx, tgtIdx)
+    if (next != gridSlots) gridSlots = next
+  }
+  fun endTileDrag() {
+    edgeDir = 0
+    val src = dragKey
+    if (src != null) {
+      val tgtIdx = targetSlotAt(dragPos)
+      val tgt = tgtIdx?.let { gridSlots.getOrNull(it) }
+      if (src.startsWith(APP_KEY) && tgt != null && tgt.startsWith(FOLDER_KEY)) {
+        // File the app into the folder; undo any live swaps so the folder stays put.
+        dragOriginalSlots?.let { gridSlots = it }
+        assignments[src.removePrefix(APP_KEY)] = tgt.removePrefix(FOLDER_KEY)
+        persist()
       }
+      UserLayout.saveGridSlots(context, gridSlots)
+    }
+    dragKey = null
+    dragOriginalSlots = null
+  }
+  fun cancelTileDrag() {
+    // Don't revert — commit the tiles where they were last dragged, so a brief finger-off-screen
+    // (which the OS reports as a cancel) never snaps everything back to where it started.
+    edgeDir = 0
+    if (dragKey != null) UserLayout.saveGridSlots(context, gridSlots)
+    dragKey = null
+    dragOriginalSlots = null
+  }
+  // Debounced page flip while a drag rests against a screen edge.
+  LaunchedEffect(edgeDir) {
+    if (edgeDir != 0 && dragKey != null) {
+      delay(450)
+      if (dragKey != null && edgeDir != 0) {
+        val target = (pagerState.currentPage + edgeDir).coerceIn(0, (pageCount - 1).coerceAtLeast(0))
+        if (target != pagerState.currentPage) pagerState.animateScrollToPage(target)
+      }
+      edgeDir = 0
+    }
+  }
+  // Auto-arrange: pack every tile into the clean default order (built-ins, widgets, folders, then
+  // apps alphabetically), removing blanks and empty pages.
+  fun tidyGrid() {
+    val packed = HomeGrid.normalizeToPages(allTileKeys, allTileKeys, pageCapacity, keepSpare = false)
+    gridSlots = packed
+    UserLayout.saveGridSlots(context, packed)
+  }
+  // If pages were removed (e.g. auto-deleted empties), don't leave the pager stranded past the end.
+  LaunchedEffect(pageCount) {
+    if (pagerState.currentPage >= pageCount) {
+      pagerState.scrollToPage((pageCount - 1).coerceAtLeast(0))
     }
   }
 
@@ -473,7 +806,8 @@ private fun LauncherScreen(
   }
 
   CompositionLocalProvider(LocalTileDp provides tileDpFor(tileSize)) {
-  Box(modifier = Modifier.fillMaxSize().background(Color(0xFF1A1A1A))) {
+  Box(modifier = Modifier.fillMaxSize()) {
+    HomeBackground(Modifier.fillMaxSize())
     Column(
         modifier =
             Modifier.fillMaxHeight()
@@ -498,90 +832,184 @@ private fun LauncherScreen(
               Modifier.fillMaxWidth()
                   .weight(1f)
                   .onGloballyPositioned { containerOrigin = it.boundsInWindow().topLeft }
-                  .pointerInput(editMode) {
-                    if (!editMode) return@pointerInput
-                    detectDragGesturesAfterLongPress(
-                        onDragStart = { local ->
-                          val win = local + containerOrigin
-                          dragPkg =
-                              tileBounds.entries
-                                  .firstOrNull {
-                                    it.key.startsWith(APP_KEY) && it.value.contains(win)
-                                  }
-                                  ?.key
-                                  ?.removePrefix(APP_KEY)
-                          dragPos = win
-                        },
-                        onDrag = { change, delta ->
-                          change.consume()
-                          dragPos += delta
-                        },
-                        onDragEnd = {
-                          dragPkg?.let { src ->
-                            val target =
-                                tileBounds.entries
-                                    .firstOrNull {
-                                      it.key != APP_KEY + src && it.value.contains(dragPos)
-                                    }
-                                    ?.key
-                            onDrop(src, target)
+                  // One stable, page-flip-proof drag detector for EVERY tile (apps, folders,
+                  // built-ins AND widgets). It watches for a long-press in the pointer Initial pass,
+                  // so it grabs the tile under the finger before a hosted widget's AndroidView can
+                  // swallow the touch — without consuming anything until the long-press actually
+                  // fires, so normal taps / widget interaction / page swipes still work.
+                  .pointerInput(Unit) {
+                    awaitEachGesture {
+                      val down =
+                          awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                      val slop = viewConfiguration.touchSlop
+                      // Wait for the long-press without consuming. Returns non-null if the gesture
+                      // was a tap/move/swipe instead (let children handle it); null on timeout = a
+                      // genuine long-press.
+                      val aborted =
+                          withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                            var done = false
+                            while (!done) {
+                              val e = awaitPointerEvent(PointerEventPass.Initial)
+                              val c = e.changes.firstOrNull { it.id == down.id }
+                              if (c == null ||
+                                  !c.pressed ||
+                                  (c.position - down.position).getDistance() > slop) {
+                                done = true
+                              }
+                            }
+                            true
                           }
-                          dragPkg = null
-                        },
-                        onDragCancel = { dragPkg = null },
-                    )
+                      if (aborted != null) return@awaitEachGesture
+                      val win = down.position + containerOrigin
+                      val hitIdx =
+                          slotBounds.entries.firstOrNull { it.value.contains(win) }?.key
+                      val hitKey = hitIdx?.let { gridSlots.getOrNull(it) }
+                      if (hitKey == null) return@awaitEachGesture
+                      containerDragging = true
+                      startTileDrag(hitKey, win)
+                      val endedNormally =
+                          drag(down.id) { change ->
+                            change.consume()
+                            moveTileDrag(change.position - change.previousPosition)
+                          }
+                      if (endedNormally) endTileDrag() else cancelTileDrag()
+                      containerDragging = false
+                    }
                   },
       ) {
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(gridColumnsFor(tileSize)),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
-            modifier = Modifier.focusRequester(homeGridFocus).focusGroup(),
-        ) {
-          // Special + folder tiles persist in Manage mode (non-uninstallable);
-          // only regular apps get a delete badge and become draggable.
-          item { PortalHomeTile(onExitHome) }
-          item { StoreTile(onOpenStore) }
-          items(folderNames, key = { it }) { name ->
-            FolderTile(
-                name = name,
-                apps = appsEff.filter { it.folder == name },
-                modifier =
-                    Modifier.onGloballyPositioned {
-                      tileBounds[FOLDER_KEY + name] = it.boundsInWindow()
-                    },
-                onClick = { openFolder = name },
-            )
+        val tileDp = LocalTileDp.current
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+          // Fit whole rows per page from the available height, then page horizontally (iOS-style).
+          // Use a safe row height (icon + spacer + label + padding) and reserve the page-dots strip
+          // below the pager, so the bottom row is never clipped in half.
+          val rowH = tileDp + 42.dp
+          val dotsReserve = 30.dp
+          val avail = (maxHeight - dotsReserve).coerceAtLeast(rowH)
+          val rows = ((avail.value + 20f) / (rowH.value + 20f)).toInt().coerceAtLeast(1)
+          val cap = (gridColumns * rows).coerceAtLeast(1)
+          LaunchedEffect(cap) { pageCapacity = cap }
+          LaunchedEffect(allTileKeys, cap, dragKey != null) {
+            // Keep a spare empty page only while arranging; otherwise empty pages are removed.
+            val normalized =
+                HomeGrid.normalizeToPages(gridSlots, allTileKeys, cap, keepSpare = dragKey != null)
+            if (normalized != gridSlots) {
+              gridSlots = normalized
+              UserLayout.saveGridSlots(context, normalized)
+            }
           }
-          items(ungrouped, key = { it.component.packageName }) { app ->
-            val pkg = app.component.packageName
-            AppTile(
-                app = app,
-                editMode = editMode,
-                dimmed = dragPkg == pkg,
-                modifier =
-                    Modifier.onGloballyPositioned {
-                      tileBounds[APP_KEY + pkg] = it.boundsInWindow()
-                    },
-                onDelete = { onUninstall(pkg) },
-                onClick = { onLaunch(app.component) },
-            )
-          }
-          // Always-present Updates tile, parked at the end of the grid. Tapping
-          // installs a ready update, or forces a fresh check when up to date.
-          item {
-            UpdatesTile(update = update, status = updateStatus) {
-              val info = update
-              if (info != null) {
-                UpdateManager.installUpdate(context, info) { updateStatus = it }
-              } else {
-                updateStatus = "Checking…"
-                UpdateManager.checkForUpdate(context) {
-                  update = it
-                  updateStatus = if (it == null) "Up to date" else null
+          Column(Modifier.fillMaxSize()) {
+            HorizontalPager(
+                state = pagerState,
+                // Disable horizontal page-swipe while a tile is being dragged (edge auto-advance
+                // takes over then); otherwise swiping flips between app pages.
+                userScrollEnabled = dragKey == null,
+                // Keep the neighbouring page composed so a drag survives a single edge page-flip
+                // (the dragged tile's gesture node isn't disposed when the page scrolls).
+                beyondViewportPageCount = 1,
+                modifier = Modifier.weight(1f).focusRequester(homeGridFocus).focusGroup(),
+            ) { page ->
+              LazyVerticalGrid(
+                  columns = GridCells.Fixed(gridColumns),
+                  horizontalArrangement = Arrangement.spacedBy(16.dp),
+                  verticalArrangement = Arrangement.spacedBy(20.dp),
+                  userScrollEnabled = false,
+                  modifier = Modifier.fillMaxSize(),
+              ) {
+                val pageStart = page * pageCapacity
+                val pageEnd = minOf(pageStart + pageCapacity, gridSlots.size)
+                val pageSize = (pageEnd - pageStart).coerceAtLeast(0)
+                // Free-placement grid: every cell is a slot — a tile or an intentional blank.
+                // Dragging a tile swaps slots, so blanks stay where the user left them. A long-press
+                // both enters Manage mode AND starts the drag in one gesture (see startTileDrag).
+                items(
+                    count = pageSize,
+                    key = { li -> gridSlots[pageStart + li] ?: "blank:${pageStart + li}" },
+                    span = { li -> GridItemSpan(widthOf(gridSlots[pageStart + li])) },
+                ) { li ->
+                  val i = pageStart + li
+                  val key = gridSlots[i]
+            val boundsMod = Modifier.onGloballyPositioned { slotBounds[i] = it.boundsInWindow() }
+            if (key == null) {
+              // Blank cell — an invisible drop target with the same footprint as a tile so the
+              // grid lines up perfectly whether a cell is filled or empty.
+              Column(
+                  horizontalAlignment = Alignment.CenterHorizontally,
+                  modifier = boundsMod.fillMaxWidth().padding(4.dp),
+              ) {
+                Box(Modifier.size(tileDp))
+                Spacer(Modifier.size(8.dp))
+                Text(" ", color = Color.Transparent, fontSize = 15.sp, maxLines = 1)
+              }
+            } else {
+              val isDragged = dragKey == key
+              when {
+                key == BUILTIN_CALLS ->
+                    HomeTileFrame(boundsMod, isDragged) { PortalHomeTile(onExitHome) }
+                key == BUILTIN_STORE ->
+                    HomeTileFrame(boundsMod, isDragged) { StoreTile(onOpenStore) }
+                key == BUILTIN_UPDATES ->
+                    HomeTileFrame(boundsMod, isDragged) {
+                      UpdatesTile(update = update, status = updateStatus) {
+                        val info = update
+                        if (info != null) {
+                          UpdateManager.installUpdate(context, info) { updateStatus = it }
+                        } else {
+                          updateStatus = "Checking…"
+                          UpdateManager.checkForUpdate(context) {
+                            update = it
+                            updateStatus = if (it == null) "Up to date" else null
+                          }
+                        }
+                      }
+                    }
+                key.startsWith(WIDGET_KEY) ->
+                    widgetByKey[key]?.let { w ->
+                      WidgetCell(
+                          widget = w,
+                          host = appWidgetHost,
+                          manager = appWidgetManager,
+                          editMode = editMode,
+                          tileDp = tileDp,
+                          dimmed = isDragged,
+                          modifier = boundsMod.alpha(if (isDragged) 0f else 1f),
+                          onRemove = { removeWidget(w) },
+                      )
+                    }
+                key.startsWith(FOLDER_KEY) -> {
+                  val name = key.removePrefix(FOLDER_KEY)
+                  HomeTileFrame(boundsMod, isDragged) {
+                    FolderTile(
+                        name = name,
+                        apps = appsEff.filter { it.folder == name },
+                        editMode = editMode,
+                        onClick = { openFolder = name },
+                    )
+                  }
+                }
+                key.startsWith(APP_KEY) ->
+                    appByKey[key]?.let { app ->
+                      AppTile(
+                          app = app,
+                          editMode = editMode,
+                          dimmed = isDragged,
+                          modifier = boundsMod.alpha(if (isDragged) 0f else 1f),
+                          onClick = { onLaunch(app.component) },
+                      )
+                    }
+                  }
                 }
               }
             }
+          }
+          if (pageCount > 1) {
+            Spacer(Modifier.size(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+            ) {
+              PageDots(selected = pagerState.currentPage, count = pageCount)
+            }
+          }
           }
         }
       }
@@ -593,33 +1021,46 @@ private fun LauncherScreen(
       }
     }
 
-    // Floating ghost of the app being dragged.
-    dragPkg?.let { pkg ->
-      appsEff.firstOrNull { it.component.packageName == pkg }?.let { dragged ->
-        val ghostDp = LocalTileDp.current
-        val half = with(androidx.compose.ui.platform.LocalDensity.current) { (ghostDp / 2).toPx() }
+    // Manage / Done toggle lives in the bottom-right corner. While managing, a
+    // sibling + button opens the widget picker so widgets are an edit action, not
+    // a permanent launcher tile.
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.align(Alignment.BottomEnd).padding(end = 36.dp, bottom = 32.dp),
+    ) {
+      if (editMode) TidyButton { tidyGrid() }
+      if (editMode) AddWidgetButton { showWidgetPicker = true }
+      EditButton(editMode = editMode, onClick = { editMode = !editMode })
+    }
+
+    // Floating ghost of the tile being dragged — it follows the finger while the grid reflows
+    // beneath it (the source cell is hidden via alpha while dragging).
+    dragKey?.let { key ->
+      val ghostDp = LocalTileDp.current
+      val half = with(androidx.compose.ui.platform.LocalDensity.current) { (ghostDp / 2).toPx() }
+      val ghostMod =
+          Modifier.offset {
+                IntOffset((dragPos.x - half).roundToInt(), (dragPos.y - half).roundToInt())
+              }
+              .size(ghostDp)
+      val app = appByKey[key]
+      if (app != null) {
         Image(
-            bitmap = dragged.icon,
+            bitmap = app.icon,
             contentDescription = null,
+            modifier = ghostMod.clip(RoundedCornerShape(20.dp)),
+        )
+      } else {
+        // Folders / built-ins / widgets: a simple lifted tile stand-in.
+        Box(
             modifier =
-                Modifier.offset {
-                      IntOffset(
-                          (dragPos.x - half).roundToInt(),
-                          (dragPos.y - half).roundToInt(),
-                      )
-                    }
-                    .size(ghostDp)
-                    .clip(RoundedCornerShape(20.dp)),
+                ghostMod
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color(0xF23A3A3C)),
         )
       }
     }
-
-    // Manage / Done toggle lives in the bottom-right corner.
-    EditButton(
-        editMode = editMode,
-        modifier = Modifier.align(Alignment.BottomEnd).padding(end = 36.dp, bottom = 32.dp),
-        onClick = { editMode = !editMode },
-    )
 
     openFolder?.let { name ->
       val folderApps = appsEff.filter { it.folder == name }
@@ -689,12 +1130,117 @@ private fun LauncherScreen(
           onCancel = { renaming = null },
       )
     }
+
+    if (showWidgetPicker) {
+      val providers by
+          produceState(initialValue = emptyList<WidgetProviderEntry>(), reload, tileSize) {
+            value = withContext(Dispatchers.IO) { loadWidgetProviders(context, tileDpFor(tileSize)) }
+          }
+      WidgetPickerOverlay(
+          providers = providers,
+          status = widgetStatus,
+          onPick = { addWidget(it) },
+          onDismiss = {
+            showWidgetPicker = false
+            widgetStatus = null
+          },
+      )
+    }
+
+    // Timer "time's up" alarm: a full-screen swipe-to-stop overlay while ringing.
+    if (timerRinging) {
+      TimerAlarmOverlay(onStop = { TimerAlarm.stop(context) })
+    }
   }
   } // CompositionLocalProvider(LocalTileDp)
 }
 
+/**
+ * Full-screen "time's up" alarm overlay with an iOS-style slide-to-stop. Blocks touches from
+ * reaching the grid beneath, so the only way out is the slider (or the 60s auto-silence).
+ */
+@Composable
+private fun TimerAlarmOverlay(onStop: () -> Unit) {
+  val noRipple = remember { MutableInteractionSource() }
+  Box(
+      contentAlignment = Alignment.Center,
+      modifier =
+          Modifier.fillMaxSize()
+              .background(Color(0xE6000000))
+              // Swallow taps so nothing behind the alarm reacts.
+              .clickable(interactionSource = noRipple, indication = null) {},
+  ) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+      Text("⏰", fontSize = 68.sp)
+      Spacer(Modifier.size(18.dp))
+      Text("Timer", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold)
+      Text(
+          "Time's up",
+          color = Color(0xFFBFBFBF),
+          fontSize = 18.sp,
+          modifier = Modifier.padding(top = 6.dp),
+      )
+      Spacer(Modifier.size(44.dp))
+      SlideToStop(onStop = onStop)
+    }
+  }
+}
+
+/** A draggable thumb on a track; sliding it to the far end fires [onStop] (else it snaps back). */
+@Composable
+private fun SlideToStop(onStop: () -> Unit) {
+  val density = androidx.compose.ui.platform.LocalDensity.current
+  val trackWidth = 320.dp
+  val thumbSize = 56.dp
+  val inset = 4.dp
+  val maxOffset =
+      with(density) { (trackWidth - thumbSize - inset * 2).toPx() }.coerceAtLeast(0f)
+  val insetPx = with(density) { inset.roundToPx() }
+  var offsetX by remember { mutableStateOf(0f) }
+  Box(
+      modifier =
+          Modifier.width(trackWidth)
+              .height(64.dp)
+              .clip(RoundedCornerShape(32.dp))
+              .background(Color(0x33FFFFFF)),
+      contentAlignment = Alignment.CenterStart,
+  ) {
+    Text(
+        "Slide to stop",
+        color = Color(0xFFE8E8E8),
+        fontSize = 16.sp,
+        fontWeight = FontWeight.Medium,
+        modifier = Modifier.align(Alignment.Center).alpha(1f - (offsetX / maxOffset).coerceIn(0f, 1f)),
+    )
+    Box(
+        modifier =
+            Modifier.offset { IntOffset(offsetX.roundToInt() + insetPx, 0) }
+                .size(thumbSize)
+                .clip(CircleShape)
+                .background(Color(0xFFE53935))
+                .pointerInput(Unit) {
+                  detectDragGestures(
+                      onDragEnd = { if (offsetX >= maxOffset * 0.9f) onStop() else offsetX = 0f },
+                      onDragCancel = { offsetX = 0f },
+                      onDrag = { change, dragAmount ->
+                        change.consume()
+                        offsetX = (offsetX + dragAmount.x).coerceIn(0f, maxOffset)
+                      },
+                  )
+                },
+        contentAlignment = Alignment.Center,
+    ) {
+      Text("›", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+    }
+  }
+}
+
 private const val APP_KEY = "app:"
 private const val FOLDER_KEY = "folder:"
+private const val WIDGET_KEY = "widget-tile:"
+private const val BUILTIN_CALLS = "builtin:calls"
+private const val BUILTIN_STORE = "builtin:store"
+private const val BUILTIN_UPDATES = "builtin:updates"
 
 private const val UPDATE_CHECK_INTERVAL_MS = 6L * 60 * 60 * 1000 // 6 hours
 
@@ -717,6 +1263,20 @@ private fun gridColumnsFor(size: String): Int =
       ImmortalSettings.SIZE_XL -> 4
       ImmortalSettings.SIZE_LARGE -> 5
       else -> 6
+    }
+
+private fun estimateWidgetSpan(minDp: Int, tileDp: Dp): Int {
+  if (minDp <= 0) return HomeWidgetStore.DEFAULT_SPAN_X
+  val tile = tileDp.value.coerceAtLeast(1f)
+  return HomeWidgetStore.normalizeSpan(((minDp + tile - 1f) / tile).toInt().coerceAtLeast(1))
+}
+
+private fun customWidgetLabel(kind: String): String =
+    when (kind) {
+      HomeWidgetStore.KIND_WEATHER -> "Weather"
+      HomeWidgetStore.KIND_WORLD_CLOCK -> "World Clock"
+      HomeWidgetStore.KIND_TIMERS -> "Timers"
+      else -> "Widget"
     }
 
 @Composable
@@ -1299,6 +1859,27 @@ private fun EditButton(editMode: Boolean, modifier: Modifier = Modifier, onClick
   }
 }
 
+/** Edit-mode "clean up" button — re-packs every tile into a tidy ordered grid. */
+@Composable
+private fun TidyButton(onClick: () -> Unit) {
+  val path = remember { PathParser().parsePathString(ICON_WIDGETS).toPath() }
+  Surface(
+      color = Color(0xCC2B2B2B),
+      shape = androidx.compose.foundation.shape.CircleShape,
+      modifier =
+          Modifier.size(60.dp).tvFocusable(androidx.compose.foundation.shape.CircleShape) {
+            onClick()
+          },
+  ) {
+    Box(contentAlignment = Alignment.Center) {
+      Canvas(Modifier.size(26.dp)) {
+        val s = size.minDimension / 24f
+        scale(s, s, pivot = Offset.Zero) { drawPath(path, Color.White) }
+      }
+    }
+  }
+}
+
 private data class BatteryReading(val present: Boolean, val percent: Int, val charging: Boolean)
 
 /** Reads the device battery, updating live. Returns present=false on devices
@@ -1403,6 +1984,8 @@ private const val ICON_REFRESH =
     "M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"
 private const val ICON_IMAGE =
     "M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"
+private const val ICON_WIDGETS =
+    "M3 3h8v8H3V3zm10 0h8v5h-8V3zM3 13h5v8H3v-8zm7 0h11v8H10v-8z"
 private const val ICON_HELP =
     "M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"
 private const val ICON_GEAR =
@@ -1424,7 +2007,7 @@ private fun BuiltInTile(
   val tileDp = LocalTileDp.current
   Column(
       horizontalAlignment = Alignment.CenterHorizontally,
-      modifier = Modifier.padding(4.dp).tvFocusable(RoundedCornerShape(22.dp)) { onClick() },
+      modifier = Modifier.fillMaxWidth().padding(4.dp).tvFocusable(RoundedCornerShape(22.dp)) { onClick() },
   ) {
     Surface(
         color = background,
@@ -1448,18 +2031,19 @@ private fun FolderTile(
     name: String,
     apps: List<AppEntry>,
     modifier: Modifier = Modifier,
+    editMode: Boolean = false,
     onClick: () -> Unit,
 ) {
   val tileDp = LocalTileDp.current
   val scale = tileDp / 88.dp // mini-icon grid scales with the tile
   Column(
       horizontalAlignment = Alignment.CenterHorizontally,
-      modifier = modifier.padding(4.dp).tvFocusable(RoundedCornerShape(22.dp)) { onClick() },
+      modifier = modifier.fillMaxWidth().padding(4.dp).tvFocusable(RoundedCornerShape(22.dp)) { onClick() },
   ) {
     Surface(
         color = Color(0xFF3A3A3A),
         shape = RoundedCornerShape(20.dp),
-        modifier = Modifier.size(tileDp),
+        modifier = Modifier.size(tileDp).jiggle(editMode, name.hashCode()),
     ) {
       Column(
           modifier = Modifier.padding(13.dp * scale),
@@ -1724,7 +2308,7 @@ private fun UpdatesTile(update: UpdateInfo?, status: String?, onClick: () -> Uni
   val tileDp = LocalTileDp.current
   Column(
       horizontalAlignment = Alignment.CenterHorizontally,
-      modifier = Modifier.padding(4.dp).tvFocusable(RoundedCornerShape(22.dp)) { onClick() },
+      modifier = Modifier.fillMaxWidth().padding(4.dp).tvFocusable(RoundedCornerShape(22.dp)) { onClick() },
   ) {
     Box {
       Surface(
@@ -1770,24 +2354,818 @@ private fun StoreTile(onClick: () -> Unit) {
 }
 
 @Composable
+private fun AddWidgetButton(onClick: () -> Unit) {
+  Surface(
+      color = Color(0xFF5B6BC0),
+      shape = RoundedCornerShape(30.dp),
+      modifier = Modifier.width(124.dp).height(60.dp).tvFocusable(RoundedCornerShape(30.dp)) {
+        onClick()
+      },
+  ) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(horizontal = 20.dp),
+    ) {
+      Text("+", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Light)
+      Text("Widget", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+    }
+  }
+}
+
+@Composable
+private fun WidgetTile(
+    widget: HomeWidgetStore.HomeWidget,
+    host: AppWidgetHost,
+    manager: AppWidgetManager,
+    editMode: Boolean,
+    tileDp: Dp,
+    modifier: Modifier = Modifier,
+    dimmed: Boolean = false,
+) {
+  val info = remember(widget.appWidgetId) {
+    if (widget.isAppWidget) manager.getAppWidgetInfo(widget.appWidgetId) else null
+  }
+  val height =
+      tileDp * widget.spanY.toFloat() +
+          20.dp * (widget.spanY - 1).coerceAtLeast(0).toFloat()
+
+  LaunchedEffect(widget, tileDp) {
+    if (widget.isAppWidget) updateWidgetSizeOptions(manager, widget, tileDp)
+  }
+
+  Box(modifier = modifier.fillMaxWidth().height(height).padding(4.dp)) {
+    Surface(
+        color = Color(0xFF252527),
+        shape = RoundedCornerShape(20.dp),
+        modifier =
+            Modifier.fillMaxSize()
+                .alpha(if (dimmed) 0.3f else 1f)
+                .jiggle(editMode && !dimmed, widget.key.hashCode()),
+    ) {
+      if (!widget.isAppWidget) {
+        ImmortalWidgetContent(widget = widget, modifier = Modifier.fillMaxSize())
+      } else if (info != null) {
+        AndroidView(
+            factory = {
+              host.createView(it, widget.appWidgetId, info).apply {
+                setAppWidget(widget.appWidgetId, info)
+                setPadding(0, 0, 0, 0)
+                isFocusable = true
+                isFocusableInTouchMode = true
+                descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+              }
+            },
+            update = { view ->
+              view.setAppWidget(widget.appWidgetId, info)
+              view.isEnabled = !editMode
+            },
+            modifier = Modifier.fillMaxSize(),
+        )
+      } else {
+        Box(
+            Modifier.fillMaxSize().background(Color(0xFF303033)),
+            contentAlignment = Alignment.Center,
+        ) {
+          Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            WidgetGlyph()
+            Text(
+                "Widget unavailable",
+                color = Color.White,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(top = 10.dp),
+            )
+            Text(
+                widget.providerPackage,
+                color = Color(0xFF9A9A9A),
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 2.dp, start = 18.dp, end = 18.dp),
+            )
+          }
+        }
+      }
+    }
+    if (editMode) {
+      // Dim/scrim only — the drag scrim and ✕ / resize controls are added by the enclosing
+      // WidgetCell so they layer correctly above the hosted widget's own touch handling.
+      Box(
+          Modifier.fillMaxSize()
+              .jiggle(!dimmed, widget.key.hashCode())
+              .clip(RoundedCornerShape(20.dp))
+              .background(Color(0x66000000)))
+    }
+  }
+}
+
+@Composable
+private fun ImmortalWidgetContent(widget: HomeWidgetStore.HomeWidget, modifier: Modifier = Modifier) {
+  when (widget.kind) {
+    HomeWidgetStore.KIND_WEATHER -> ImmortalWeatherWidget(modifier)
+    HomeWidgetStore.KIND_WORLD_CLOCK -> ImmortalWorldClockWidget(modifier)
+    HomeWidgetStore.KIND_TIMERS -> ImmortalTimersWidget(modifier)
+    else -> UnknownImmortalWidget(widget.kind, modifier)
+  }
+}
+
+@Composable
+private fun ImmortalWidgetShell(
+    title: String,
+    modifier: Modifier = Modifier,
+    accent: Color = Color(0xFF7AA7FF),
+    content: @Composable ColumnScope.() -> Unit,
+) {
+  Column(
+      modifier =
+          modifier
+              .background(Color(0xFF161618), RoundedCornerShape(24.dp))
+              .padding(18.dp),
+  ) {
+    Text(
+        title.uppercase(Locale.getDefault()),
+        color = accent,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Bold,
+        maxLines = 1,
+    )
+    Spacer(Modifier.size(8.dp))
+    content()
+  }
+}
+
+@Composable
+private fun ImmortalWeatherWidget(modifier: Modifier = Modifier) {
+  val context = androidx.compose.ui.platform.LocalContext.current
+  var fahrenheit by remember { mutableStateOf(ImmortalSettings.useFahrenheit(context)) }
+  val lifecycleOwner = LocalLifecycleOwner.current
+  DisposableEffect(lifecycleOwner) {
+    val obs = LifecycleEventObserver { _, e ->
+      if (e == Lifecycle.Event.ON_RESUME) fahrenheit = ImmortalSettings.useFahrenheit(context)
+    }
+    lifecycleOwner.lifecycle.addObserver(obs)
+    onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+  }
+  val current by
+      produceState<Weather.Current?>(initialValue = null, fahrenheit) {
+        while (true) {
+          value = withContext(Dispatchers.IO) { Weather.fetchCurrent(context) }
+          delay(if (value == null) 60_000L else 30L * 60 * 1000)
+        }
+      }
+  val forecast by
+      produceState<Weather.Forecast?>(initialValue = null, fahrenheit) {
+        value = withContext(Dispatchers.IO) { Weather.fetchForecast(context) }
+      }
+  val code = current?.code ?: 0
+  val isDay = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY) in 6..18
+  val (gTop, gBottom) = weatherGradient(code, isDay)
+  // Dynamic gradient card that matches the weather (iOS-style), city + big temp top-left,
+  // condition glyph top-right, and an hourly strip along the bottom.
+  Box(
+      modifier =
+          modifier
+              .clip(RoundedCornerShape(24.dp))
+              .background(Brush.linearGradient(listOf(gTop, gBottom)))
+              .padding(18.dp),
+  ) {
+    Column(Modifier.fillMaxSize()) {
+      Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+        Column(Modifier.weight(1f)) {
+          Text(
+              current?.city?.ifBlank { "Weather" } ?: "Weather",
+              color = Color.White,
+              fontSize = 18.sp,
+              fontWeight = FontWeight.SemiBold,
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis,
+          )
+          Text(
+              current?.let { "${it.temp}°" } ?: "—",
+              color = Color.White,
+              fontSize = 46.sp,
+              fontWeight = FontWeight.Light,
+          )
+        }
+        Text(Weather.emoji(code), fontSize = 34.sp)
+      }
+      Spacer(Modifier.weight(1f))
+      val hours = forecast?.hours?.take(5).orEmpty()
+      if (hours.isNotEmpty()) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+          hours.forEach { h ->
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.weight(1f),
+            ) {
+              Text(h.label, color = Color(0xCCFFFFFF), fontSize = 11.sp, maxLines = 1)
+              Text(Weather.emoji(h.code), fontSize = 18.sp, modifier = Modifier.padding(vertical = 3.dp))
+              Text("${h.temp}°", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+/** A weather-matching two-stop gradient (top → bottom), varying with the condition and day/night. */
+private fun weatherGradient(code: Int, isDay: Boolean): Pair<Color, Color> {
+  if (!isDay) {
+    return when {
+      code in 51..99 -> Color(0xFF2A3340) to Color(0xFF49586B)
+      code == 3 || code in 45..48 -> Color(0xFF263041) to Color(0xFF3C4A5E)
+      else -> Color(0xFF18233F) to Color(0xFF36527E)
+    }
+  }
+  return when {
+    code in 71..77 -> Color(0xFF7E93A8) to Color(0xFFBFCEDC) // snow
+    code in 51..67 || code in 80..82 -> Color(0xFF45607A) to Color(0xFF7791A6) // rain
+    code in 95..99 -> Color(0xFF3A4A5C) to Color(0xFF5E7286) // thunder
+    code == 3 -> Color(0xFF5E7E98) to Color(0xFF93ABC0) // overcast
+    code in 45..48 -> Color(0xFF7E8E9C) to Color(0xFFAEBBC6) // fog
+    else -> Color(0xFF3E8BD0) to Color(0xFF77B8E8) // clear / partly (the blue from the mock)
+  }
+}
+
+@Composable
+private fun ImmortalWorldClockWidget(modifier: Modifier = Modifier) {
+  val context = androidx.compose.ui.platform.LocalContext.current
+  var zones by remember { mutableStateOf(ImmortalSettings.worldClockZones(context)) }
+  val lifecycleOwner = LocalLifecycleOwner.current
+  DisposableEffect(lifecycleOwner) {
+    val obs = LifecycleEventObserver { _, e ->
+      if (e == Lifecycle.Event.ON_RESUME) zones = ImmortalSettings.worldClockZones(context)
+    }
+    lifecycleOwner.lifecycle.addObserver(obs)
+    onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+  }
+  var now by remember { mutableStateOf(Date()) }
+  LaunchedEffect(Unit) {
+    while (true) {
+      now = Date()
+      delay(1000)
+    }
+  }
+  ImmortalWidgetShell(title = "World Clock", accent = Color(0xFFFFC857), modifier = modifier) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+      zones.take(4).forEach { zone ->
+        Column(
+            modifier = Modifier.weight(1f),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+          AnalogClock(zone, now, Modifier.fillMaxWidth().aspectRatio(1f))
+          Spacer(Modifier.size(6.dp))
+          Text(
+              worldClockLabel(zone),
+              color = Color.White,
+              fontSize = 12.sp,
+              fontWeight = FontWeight.Medium,
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis,
+          )
+          Text(worldClockOffset(zone, now), color = Color(0xFF9A9A9A), fontSize = 10.sp, maxLines = 1)
+        }
+      }
+    }
+  }
+}
+
+/** Short city label from a tz id, e.g. "America/New_York" → "New York". */
+private fun worldClockLabel(zoneId: String): String =
+    zoneId.substringAfterLast('/').replace('_', ' ')
+
+/** Offset of [zoneId] vs the device's zone, e.g. "+5h" / "-3h" / "same". */
+private fun worldClockOffset(zoneId: String, now: Date): String {
+  val local = TimeZone.getDefault().getOffset(now.time)
+  val there = TimeZone.getTimeZone(zoneId).getOffset(now.time)
+  val diffH = (there - local) / 3_600_000
+  return when {
+    diffH == 0 -> "same"
+    diffH > 0 -> "+${diffH}h"
+    else -> "${diffH}h"
+  }
+}
+
+/** A small analog clock face for [zoneId], white by day / dark by night, with an orange seconds hand. */
+@Composable
+private fun AnalogClock(zoneId: String, now: Date, modifier: Modifier = Modifier) {
+  val cal = remember(zoneId) { java.util.Calendar.getInstance(TimeZone.getTimeZone(zoneId)) }
+  cal.time = now
+  val hour = cal.get(java.util.Calendar.HOUR)
+  val minute = cal.get(java.util.Calendar.MINUTE)
+  val second = cal.get(java.util.Calendar.SECOND)
+  val night = cal.get(java.util.Calendar.HOUR_OF_DAY) !in 6..18
+  val face = if (night) Color(0xFF1F1F22) else Color.White
+  val ink = if (night) Color.White else Color(0xFF1A1A1A)
+  val tick = if (night) Color(0x66FFFFFF) else Color(0x55000000)
+  Canvas(modifier) {
+    val r = size.minDimension / 2f
+    val c = Offset(size.width / 2f, size.height / 2f)
+    drawCircle(face, radius = r, center = c)
+    // Hour ticks.
+    for (i in 0 until 12) {
+      val a = Math.toRadians(i * 30.0)
+      val sin = kotlin.math.sin(a).toFloat()
+      val cos = kotlin.math.cos(a).toFloat()
+      drawLine(
+          tick,
+          start = Offset(c.x + sin * r * 0.82f, c.y - cos * r * 0.82f),
+          end = Offset(c.x + sin * r * 0.94f, c.y - cos * r * 0.94f),
+          strokeWidth = r * 0.05f,
+      )
+    }
+    fun hand(angleDeg: Double, length: Float, width: Float, color: Color) {
+      val a = Math.toRadians(angleDeg)
+      drawLine(
+          color,
+          start = c,
+          end = Offset(c.x + (kotlin.math.sin(a) * length).toFloat(), c.y - (kotlin.math.cos(a) * length).toFloat()),
+          strokeWidth = width,
+          cap = StrokeCap.Round,
+      )
+    }
+    hand((hour % 12 + minute / 60.0) * 30.0, r * 0.5f, r * 0.10f, ink)
+    hand((minute + second / 60.0) * 6.0, r * 0.78f, r * 0.07f, ink)
+    hand(second * 6.0, r * 0.85f, r * 0.03f, Color(0xFFFF9500))
+    drawCircle(Color(0xFFFF9500), radius = r * 0.06f, center = c)
+  }
+}
+
+@Composable
+private fun ImmortalTimersWidget(modifier: Modifier = Modifier) {
+  val context = androidx.compose.ui.platform.LocalContext.current
+  var state by remember { mutableStateOf(TimerStore.load(context)) }
+  var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
+  var showCustom by remember { mutableStateOf(false) }
+  // Live updates if the timer is changed elsewhere (e.g. another Timers widget instance).
+  DisposableEffect(Unit) {
+    val l: () -> Unit = {
+      state = TimerStore.load(context)
+      nowMs = System.currentTimeMillis()
+    }
+    TimerStore.addListener(l)
+    onDispose { TimerStore.removeListener(l) }
+  }
+  // Tick the countdown while it's running. When it hits zero we stop ticking but DON'T clear —
+  // the exact alarm ([TimerAlarmReceiver]) flips the timer to ringing, which the listener picks up.
+  LaunchedEffect(state.running, state.endsAt) {
+    while (state.running) {
+      nowMs = System.currentTimeMillis()
+      if (state.remaining(nowMs) <= 0L) break
+      delay(250)
+    }
+  }
+  val remainingMs = state.remaining(nowMs)
+  val mins = (remainingMs / 60_000).toInt()
+  val secs = ((remainingMs / 1000) % 60).toInt()
+  ImmortalWidgetShell(title = "Timers", accent = Color(0xFFFF9F0A), modifier = modifier) {
+    Text(
+        when {
+          state.ringing -> "Time's up"
+          remainingMs > 0 -> "%d:%02d".format(mins, secs)
+          else -> "Ready"
+        },
+        color = if (state.ringing) Color(0xFFFF9F0A) else Color.White,
+        fontSize = 34.sp,
+        fontWeight = FontWeight.SemiBold,
+    )
+    Spacer(Modifier.size(12.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      if (state.ringing) {
+        TimerChip("Stop") { TimerAlarm.stop(context) }
+      } else {
+        listOf(5, 10, 30).forEach { minutes ->
+          TimerChip("${minutes}m") { TimerStore.start(context, minutes * 60_000L) }
+        }
+        TimerChip("Custom") { showCustom = true }
+        if (remainingMs > 0) {
+          TimerChip(if (state.running) "Pause" else "Start") {
+            if (state.running) TimerStore.pause(context) else TimerStore.resume(context)
+          }
+        }
+      }
+    }
+  }
+  if (showCustom) {
+    CustomTimerDialog(
+        onStart = { ms ->
+          if (ms > 0) TimerStore.start(context, ms)
+          showCustom = false
+        },
+        onDismiss = { showCustom = false },
+    )
+  }
+}
+
+/** A keyboard-free duration picker (±steppers, remote/touch friendly) for a custom timer. */
+@Composable
+private fun CustomTimerDialog(onStart: (Long) -> Unit, onDismiss: () -> Unit) {
+  var minutes by remember { mutableStateOf(5) }
+  var seconds by remember { mutableStateOf(0) }
+  androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+    Surface(color = Color(0xFF1C1C1E), shape = RoundedCornerShape(24.dp)) {
+      Column(
+          modifier = Modifier.padding(28.dp),
+          horizontalAlignment = Alignment.CenterHorizontally,
+      ) {
+        Text("Custom timer", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.size(24.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+          DurationStepper("min", minutes, step = 1) { minutes = (minutes + it).coerceIn(0, 180) }
+          Text(":", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Light)
+          DurationStepper("sec", seconds, step = 5) { seconds = (seconds + it + 60) % 60 }
+        }
+        Spacer(Modifier.size(28.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+          TimerChip("Cancel") { onDismiss() }
+          TimerChip("Start ${minutes}:%02d".format(seconds)) {
+            onStart((minutes * 60 + seconds) * 1000L)
+          }
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun DurationStepper(label: String, value: Int, step: Int, onChange: (Int) -> Unit) {
+  Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Text(label.uppercase(Locale.getDefault()), color = Color(0xFF9A9A9A), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+    Spacer(Modifier.size(8.dp))
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+      StepButton("−") { onChange(-step) }
+      Text("%02d".format(value), color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
+      StepButton("+") { onChange(step) }
+    }
+  }
+}
+
+@Composable
+private fun StepButton(label: String, onClick: () -> Unit) {
+  Surface(
+      color = Color(0x22FFFFFF),
+      shape = CircleShape,
+      modifier = Modifier.size(44.dp).tvFocusable(CircleShape) { onClick() },
+  ) {
+    Box(contentAlignment = Alignment.Center) {
+      Text(label, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Light)
+    }
+  }
+}
+
+@Composable
+private fun TimerChip(label: String, onClick: () -> Unit) {
+  Surface(
+      color = Color(0x22FFFFFF),
+      shape = RoundedCornerShape(999.dp),
+      modifier = Modifier.tvFocusable(RoundedCornerShape(999.dp)) { onClick() },
+  ) {
+    Text(
+        label,
+        color = Color.White,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+    )
+  }
+}
+
+@Composable
+private fun UnknownImmortalWidget(kind: String, modifier: Modifier = Modifier) {
+  Box(modifier.background(Color(0xFF303033)), contentAlignment = Alignment.Center) {
+    Text(kind, color = Color.White, fontSize = 16.sp)
+  }
+}
+
+@Composable
+private fun WidgetPickerOverlay(
+    providers: List<WidgetProviderEntry>,
+    status: String?,
+    onPick: (WidgetProviderEntry) -> Unit,
+    onDismiss: () -> Unit,
+) {
+  val noRipple = remember { MutableInteractionSource() }
+  BackHandler { onDismiss() }
+  val gridFocus = remember { FocusRequester() }
+  LaunchedEffect(providers) { runCatching { gridFocus.requestFocus() } }
+
+  Box(
+      contentAlignment = Alignment.Center,
+      modifier =
+          Modifier.fillMaxSize()
+              .onPreviewKeyEvent { e ->
+                if (e.key == Key.Back || e.key == Key.Escape) {
+                  if (e.type == KeyEventType.KeyUp) onDismiss()
+                  true
+                } else false
+              }
+              .background(Color(0xDD000000))
+              .clickable(interactionSource = noRipple, indication = null) { onDismiss() },
+  ) {
+    Surface(
+        color = Color(0xFF1C1C1E),
+        shape = RoundedCornerShape(28.dp),
+        modifier =
+            Modifier.widthIn(max = 920.dp)
+                .fillMaxWidth(0.78f)
+                .heightIn(max = 620.dp)
+                .clickable(interactionSource = noRipple, indication = null) {},
+    ) {
+      Column(modifier = Modifier.padding(28.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+          Column(modifier = Modifier.weight(1f)) {
+            Text("Add widget", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                "Choose a widget provider installed on this Portal.",
+                color = Color(0xFF9A9A9A),
+                fontSize = 14.sp,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+          }
+          Surface(
+              color = Color(0x33FFFFFF),
+              shape = CircleShape,
+              modifier = Modifier.size(44.dp).tvFocusable(CircleShape) { onDismiss() },
+          ) {
+            Box(contentAlignment = Alignment.Center) { Text("✕", color = Color.White, fontSize = 20.sp) }
+          }
+        }
+        if (status != null) {
+          Text(
+              status,
+              color = Color(0xFF8AB4F8),
+              fontSize = 13.sp,
+              modifier = Modifier.padding(top = 14.dp),
+          )
+        }
+        Spacer(Modifier.size(20.dp))
+        if (providers.isEmpty()) {
+          Box(
+              modifier = Modifier.fillMaxWidth().height(220.dp),
+              contentAlignment = Alignment.Center,
+          ) {
+            Text(
+                "No widget providers are installed.",
+                color = Color(0xFFB8B8B8),
+                fontSize = 16.sp,
+            )
+          }
+        } else {
+          LazyVerticalGrid(
+              columns = GridCells.Fixed(3),
+              horizontalArrangement = Arrangement.spacedBy(14.dp),
+              verticalArrangement = Arrangement.spacedBy(14.dp),
+              modifier = Modifier.focusRequester(gridFocus).focusGroup(),
+          ) {
+            items(providers, key = { it.info?.provider?.flattenToString() ?: "custom:${it.customKind}" }) { provider ->
+              WidgetProviderTile(provider = provider, onClick = { onPick(provider) })
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun WidgetProviderTile(provider: WidgetProviderEntry, onClick: () -> Unit) {
+  Surface(
+      color = Color(0xFF29292C),
+      shape = RoundedCornerShape(18.dp),
+      modifier = Modifier.tvFocusable(RoundedCornerShape(18.dp)) { onClick() },
+  ) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Surface(
+          color = Color(0xFF38383C),
+          shape = RoundedCornerShape(14.dp),
+          modifier = Modifier.size(58.dp),
+      ) {
+        Box(contentAlignment = Alignment.Center) {
+          if (provider.icon != null) {
+            Image(
+                bitmap = provider.icon,
+                contentDescription = null,
+                modifier = Modifier.size(42.dp).clip(RoundedCornerShape(10.dp)),
+            )
+          } else if (provider.customKind != null) {
+            CustomWidgetGlyph(provider.customKind)
+          } else {
+            WidgetGlyph()
+          }
+        }
+      }
+      Column(modifier = Modifier.padding(start = 14.dp).weight(1f)) {
+        Text(
+            provider.label,
+            color = Color.White,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            provider.packageLabel,
+            color = Color(0xFF9A9A9A),
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 3.dp),
+        )
+        Text(
+            "${provider.spanX} x ${provider.spanY}",
+            color = Color(0xFF7C7C7C),
+            fontSize = 11.sp,
+            modifier = Modifier.padding(top = 5.dp),
+        )
+      }
+    }
+  }
+}
+
+@Composable
+private fun CustomWidgetGlyph(kind: String) {
+  val emoji =
+      when (kind) {
+        HomeWidgetStore.KIND_WEATHER -> "☁"
+        HomeWidgetStore.KIND_WORLD_CLOCK -> "◷"
+        HomeWidgetStore.KIND_TIMERS -> "⏱"
+        else -> "+"
+      }
+  Text(emoji, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.SemiBold)
+}
+
+@Composable
+private fun WidgetGlyph() {
+  val path = remember { PathParser().parsePathString(ICON_WIDGETS).toPath() }
+  Canvas(Modifier.size(28.dp)) {
+    val s = size.minDimension / 24f
+    scale(s, s, pivot = Offset.Zero) { drawPath(path, Color.White) }
+  }
+}
+
+/**
+ * iOS-style "jiggle": a gentle continuous wobble applied to editable tiles while Manage mode is on.
+ * Each tile is given a [seed] so they fall slightly out of phase (rather than wobbling in lockstep).
+ * The animation only exists while [enabled]; it leaves composition when Manage mode ends so the
+ * long-lived launcher isn't animating in the background.
+ */
+@Composable
+private fun Modifier.jiggle(enabled: Boolean, seed: Int): Modifier {
+  if (!enabled) return this
+  val transition = rememberInfiniteTransition(label = "jiggle")
+  val phase = (abs(seed) % 6) * 28
+  val angle by
+      transition.animateFloat(
+          initialValue = -2.0f,
+          targetValue = 2.0f,
+          animationSpec =
+              infiniteRepeatable(
+                  animation = tween(durationMillis = 170, easing = LinearEasing),
+                  repeatMode = RepeatMode.Reverse,
+                  initialStartOffset = StartOffset(phase),
+              ),
+          label = "jiggle-angle",
+      )
+  val bob by
+      transition.animateFloat(
+          initialValue = -1.4f,
+          targetValue = 1.4f,
+          animationSpec =
+              infiniteRepeatable(
+                  animation = tween(durationMillis = 230, easing = LinearEasing),
+                  repeatMode = RepeatMode.Reverse,
+                  initialStartOffset = StartOffset(phase + 60),
+              ),
+          label = "jiggle-bob",
+      )
+  return this.graphicsLayer {
+    rotationZ = angle
+    translationY = bob
+  }
+}
+
+/**
+ * Round red delete affordance with a crisply-drawn, perfectly-centered ✕ (the unicode glyph
+ * isn't vertically centered inside its line box, so it's drawn as two crossing strokes instead).
+ */
+@Composable
+private fun RemoveBadge(size: Dp, modifier: Modifier = Modifier, onClick: () -> Unit) {
+  Surface(
+      color = Color(0xFFE53935),
+      shape = CircleShape,
+      modifier = modifier.size(size).tvFocusable(CircleShape) { onClick() },
+  ) {
+    Canvas(Modifier.fillMaxSize()) {
+      val cx = this.size.width / 2f
+      val cy = this.size.height / 2f
+      val arm = this.size.minDimension * 0.21f
+      val stroke = this.size.minDimension * 0.11f
+      drawLine(
+          Color.White,
+          Offset(cx - arm, cy - arm),
+          Offset(cx + arm, cy + arm),
+          strokeWidth = stroke,
+          cap = StrokeCap.Round,
+      )
+      drawLine(
+          Color.White,
+          Offset(cx - arm, cy + arm),
+          Offset(cx + arm, cy - arm),
+          strokeWidth = stroke,
+          cap = StrokeCap.Round,
+      )
+    }
+  }
+}
+
+/**
+ * Wraps a tile whose own content does NOT swallow touches (built-ins, folders, apps) with a
+ * dragged-dim. The drag itself is handled by the stable container detector that wraps the pager, so
+ * the gesture survives a page flip (letting a tile be dragged onto another page). Hosted widgets
+ * still use their own in-page scrim handle (see [WidgetCell]), since their AndroidView swallows it.
+ */
+@Composable
+private fun HomeTileFrame(
+    modifier: Modifier,
+    dragged: Boolean,
+    content: @Composable () -> Unit,
+) {
+  Box(modifier = modifier.fillMaxWidth().alpha(if (dragged) 0f else 1f)) { content() }
+}
+
+/** Widget tile + the ✕ remove badge in edit mode. Drag is handled by the stable container detector
+ * (which grabs widgets via the pointer Initial pass), so widgets drag and move across pages like
+ * apps. Widgets are not user-resizable — they keep the size their provider declares. */
+@Composable
+private fun WidgetCell(
+    widget: HomeWidgetStore.HomeWidget,
+    host: AppWidgetHost,
+    manager: AppWidgetManager,
+    editMode: Boolean,
+    tileDp: Dp,
+    dimmed: Boolean,
+    modifier: Modifier,
+    onRemove: () -> Unit,
+) {
+  Box(modifier = modifier) {
+    WidgetTile(
+        widget = widget,
+        host = host,
+        manager = manager,
+        editMode = editMode,
+        tileDp = tileDp,
+        dimmed = dimmed,
+    )
+    if (editMode) {
+      RemoveBadge(
+          size = 30.dp,
+          modifier = Modifier.align(Alignment.TopEnd).offset(x = 7.dp, y = (-7).dp),
+          onClick = onRemove,
+      )
+    }
+  }
+}
+
+@Composable
 private fun AppTile(
     app: AppEntry,
     editMode: Boolean,
     modifier: Modifier = Modifier,
     dimmed: Boolean = false,
     onDelete: () -> Unit = {},
+    onLongPress: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
   Column(
       horizontalAlignment = Alignment.CenterHorizontally,
-      // In Manage mode the body tap is inert (drag to fold, ✕ to remove); the
-      // icon launches normally otherwise.
+      // In Manage mode the body tap is inert (drag to reorder, ✕ to remove); the
+      // icon launches normally otherwise. A long-press enters Manage mode (iOS-style).
       modifier =
-          modifier.padding(4.dp).tvFocusable(RoundedCornerShape(22.dp), enabled = !editMode) {
+          modifier.fillMaxWidth().padding(4.dp).tvFocusable(
+              RoundedCornerShape(22.dp),
+              enabled = !editMode,
+              onLongClick = onLongPress,
+          ) {
             onClick()
           },
   ) {
-    Box {
+    // The icon (and its delete badge) jiggle as a unit in Manage mode; the label stays still.
+    Box(modifier = Modifier.jiggle(editMode && !dimmed, app.component.packageName.hashCode())) {
       Image(
           bitmap = app.icon,
           contentDescription = app.label,
@@ -1797,15 +3175,12 @@ private fun AppTile(
                   .alpha(if (dimmed) 0.3f else 1f),
       )
       if (editMode) {
-        Surface(
-            color = Color(0xFFE53935),
-            shape = androidx.compose.foundation.shape.CircleShape,
-            modifier = Modifier.size(30.dp).align(Alignment.TopEnd).clickable { onDelete() },
-        ) {
-          Box(contentAlignment = Alignment.Center) {
-            Text("✕", color = Color.White, fontSize = 18.sp)
-          }
-        }
+        // Sits at the icon's outer top-right corner (nudged off the icon, iOS-style).
+        RemoveBadge(
+            size = 26.dp,
+            modifier = Modifier.align(Alignment.TopEnd).offset(x = 9.dp, y = (-9).dp),
+            onClick = onDelete,
+        )
       }
     }
     Spacer(Modifier.size(8.dp))
@@ -1853,3 +3228,116 @@ private fun loadApps(context: Context): List<AppEntry> {
       .sortedBy { it.label.lowercase(Locale.getDefault()) }
 }
 
+private fun loadWidgetProviders(context: Context, tileDp: Dp): List<WidgetProviderEntry> {
+  val pm = context.packageManager
+  val density = context.resources.displayMetrics.densityDpi
+  val custom =
+      listOf(
+          WidgetProviderEntry(
+              label = "Weather",
+              packageLabel = "Immortal",
+              icon = null,
+              info = null,
+              spanX = 2,
+              spanY = 2,
+              customKind = HomeWidgetStore.KIND_WEATHER,
+          ),
+          WidgetProviderEntry(
+              label = "World Clock",
+              packageLabel = "Immortal",
+              icon = null,
+              info = null,
+              spanX = 2,
+              spanY = 2,
+              customKind = HomeWidgetStore.KIND_WORLD_CLOCK,
+          ),
+          WidgetProviderEntry(
+              label = "Timers",
+              packageLabel = "Immortal",
+              icon = null,
+              info = null,
+              spanX = 2,
+              spanY = 2,
+              customKind = HomeWidgetStore.KIND_TIMERS,
+          ),
+      )
+  val android =
+      AppWidgetManager.getInstance(context)
+      .installedProviders
+      .mapNotNull { info ->
+        runCatching {
+              val packageLabel =
+                  pm.getApplicationLabel(pm.getApplicationInfo(info.provider.packageName, 0))
+                      .toString()
+              val icon =
+                  runCatching { info.loadIcon(context, density) }
+                      .getOrNull()
+                      ?: runCatching { pm.getApplicationIcon(info.provider.packageName) }.getOrNull()
+              val iconBitmap = icon?.toBitmap(96, 96)?.asImageBitmap()
+              WidgetProviderEntry(
+                  label = info.loadLabel(pm).toString().ifBlank { packageLabel },
+                  packageLabel = packageLabel,
+                  icon = iconBitmap,
+                  info = info,
+                  spanX =
+                      estimateWidgetSpan(appWidgetMinDp(context, info.minWidth), tileDp)
+                          .coerceAtLeast(HomeWidgetStore.DEFAULT_SPAN_X),
+                  spanY =
+                      estimateWidgetSpan(appWidgetMinDp(context, info.minHeight), tileDp)
+                          .coerceAtLeast(HomeWidgetStore.DEFAULT_SPAN_Y),
+              )
+            }
+            .getOrNull()
+      }
+      .sortedWith(
+          compareBy(
+              { it.packageLabel.lowercase(Locale.getDefault()) },
+              { it.label.lowercase(Locale.getDefault()) }))
+  return custom + android
+}
+
+private fun List<HomeWidgetStore.HomeWidget>.filterLiveWidgets(
+    manager: AppWidgetManager,
+    host: AppWidgetHost,
+): List<HomeWidgetStore.HomeWidget> {
+  val live = filter { !it.isAppWidget || manager.getAppWidgetInfo(it.appWidgetId) != null }
+  if (live.size != size) {
+    val liveIds = live.map { it.appWidgetId }.toSet()
+    filter { it.isAppWidget && it.appWidgetId !in liveIds }.forEach {
+      runCatching { host.deleteAppWidgetId(it.appWidgetId) }
+    }
+  }
+  return live
+}
+
+private fun updateWidgetSizeOptions(
+    manager: AppWidgetManager,
+    widget: HomeWidgetStore.HomeWidget,
+    tileDp: Dp,
+) {
+  val width =
+      (tileDp.value * widget.spanX + 16f * (widget.spanX - 1).coerceAtLeast(0)).roundToInt()
+  val height =
+      (tileDp.value * widget.spanY + 20f * (widget.spanY - 1).coerceAtLeast(0)).roundToInt()
+  runCatching {
+    manager.updateAppWidgetOptions(
+        widget.appWidgetId,
+        Bundle().apply {
+          putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, width)
+          putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, width)
+          putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, height)
+          putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, height)
+        })
+  }
+}
+
+private fun appWidgetMinDp(context: Context, raw: Int): Int {
+  if (raw <= 0) return 0
+  // Android 9/10 on Portal reports AppWidgetProviderInfo sizes as raw complex
+  // dimension values (for example, 10241 == 40dp). Newer framework builds may
+  // already hand back dp integers, so only decode values that are clearly not
+  // plain dp sizes.
+  if (raw < 1000) return raw
+  val metrics = context.resources.displayMetrics
+  return (TypedValue.complexToDimensionPixelSize(raw, metrics) / metrics.density).roundToInt()
+}
