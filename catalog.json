@@ -305,10 +305,24 @@
           "apkUrl": "https://github.com/GodricTM/PortalOverlays/releases/latest/download/PortalOverlays.apk",
           "minSdk": 28,
           "description": "Floating always-on-top HUD — nav buttons, widgets, notification banners, and a now-playing screen saver.",
-          "longDescription": "A background service that layers a configurable HUD over whatever's on screen: floating Back / Home / Recents / Control-Center navigation, draggable clock, weather, battery and sticky-note widgets, a status strip, ntfy.sh push banners, and a system-notification mirror (WhatsApp, Messenger, and the like) via a notification listener. Urgent alerts get a full-attention 'breaking news' popup that is read aloud. It also ships its own now-playing screen saver — cover art, clock, battery and a music visualizer over a black, photo, or web-page background (for example an Immich Kiosk feed). Keyless and no Google services; weather is Open-Meteo. Spoken alerts use the sideloaded Portal TTS engine (https://github.com/GodricTM/sherpa-onnx-tts-engine) when it is installed, and are silently skipped when it is not.",
+          "longDescription": "A background service that layers a configurable HUD over whatever's on screen: floating Back / Home / Recents / Control-Center navigation, draggable clock, weather, battery and sticky-note widgets, a status strip, ntfy.sh push banners, and a system-notification mirror (WhatsApp, Messenger, and the like) via a notification listener. Urgent alerts get a full-attention 'breaking news' popup that is read aloud. It also ships its own now-playing screen saver — cover art, clock, battery and a music visualizer over a black, photo, or web-page background (for example an Immich Kiosk feed). Keyless and no Google services; weather is Open-Meteo. Spoken alerts use the sideloaded Portal TTS engine (https://github.com/GodricTM/portal-tts-engine) when it is installed, and are silently skipped when it is not.",
           "iconUrl": "https://raw.githubusercontent.com/GodricTM/PortalOverlays/main/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png",
           "author": "GodricTM",
           "homepage": "https://github.com/GodricTM/PortalOverlays",
+          "submittedBy": "GodricTM"
+        },
+        {
+          "name": "Portal TTS",
+          "packageName": "com.portal.tts",
+          "source": "url",
+          "apkUrl": "https://github.com/GodricTM/portal-tts-engine/releases/download/v1.0/Portal-TTS-Engine-v1.apk",
+          "versionCode": 20260608,
+          "minSdk": 21,
+          "description": "Offline neural text-to-speech engine — gives the Portal a system voice (it ships with none).",
+          "longDescription": "Meta Portals have no built-in text-to-speech, so apps that speak — like Immortal's spoken time or Portal Overlays' breaking-news read-out — have nothing to talk through. Portal TTS is an offline neural engine (a Sherpa-ONNX fork with Kokoro and Piper voices) that registers as a standard Android TextToSpeech engine: install it, select it under the system text-to-speech settings, and any app on the device can then speak through it — no Google services, fully on-device. Advanced setup: to keep the download small the voice models aren't bundled in the APK — you push a voice-model folder to the app's storage over adb and pick it in the app, so a PC is needed once to add voices. See the project page for models and step-by-step instructions.",
+          "iconUrl": "https://raw.githubusercontent.com/GodricTM/portal-tts-engine/main/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png",
+          "author": "GodricTM",
+          "homepage": "https://github.com/GodricTM/portal-tts-engine",
           "submittedBy": "GodricTM"
         }
       ]
