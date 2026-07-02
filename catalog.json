@@ -311,6 +311,47 @@
           "author": "rudysev",
           "homepage": "https://github.com/rudysev/portal-kasa",
           "submittedBy": "rudysev"
+        },
+        {
+          "name": "Portal Overlays",
+          "packageName": "com.portal.overlays",
+          "source": "url",
+          "apkUrl": "https://github.com/GodricTM/PortalOverlays/releases/latest/download/PortalOverlays.apk",
+          "minSdk": 28,
+          "description": "Floating always-on-top HUD — nav buttons, widgets, notification banners, and a now-playing screen saver.",
+          "longDescription": "A background service that layers a configurable HUD over whatever's on screen: floating Back / Home / Recents / Control-Center navigation, draggable clock, weather, battery and sticky-note widgets, a status strip, ntfy.sh push banners, and a system-notification mirror (WhatsApp, Messenger, and the like) via a notification listener. Urgent alerts get a full-attention 'breaking news' popup that is read aloud. It also ships its own now-playing screen saver — cover art, clock, battery and a music visualizer over a black, photo, or web-page background (for example an Immich Kiosk feed). Keyless and no Google services; weather is Open-Meteo. Spoken alerts use the sideloaded Portal TTS engine (https://github.com/GodricTM/portal-tts-engine) when it is installed, and are silently skipped when it is not.",
+          "iconUrl": "https://raw.githubusercontent.com/GodricTM/PortalOverlays/main/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png",
+          "author": "GodricTM",
+          "homepage": "https://github.com/GodricTM/PortalOverlays",
+          "submittedBy": "GodricTM"
+        },
+        {
+          "name": "Portal TTS",
+          "packageName": "com.portal.tts",
+          "source": "url",
+          "apkUrl": "https://github.com/GodricTM/portal-tts-engine/releases/download/v1.0/Portal-TTS-Engine-v1.apk",
+          "versionCode": 20260608,
+          "minSdk": 21,
+          "description": "Offline neural text-to-speech engine — gives the Portal a system voice (it ships with none).",
+          "longDescription": "Meta Portals have no built-in text-to-speech, so apps that speak — like Immortal's spoken time or Portal Overlays' breaking-news read-out — have nothing to talk through. Portal TTS is an offline neural engine (a Sherpa-ONNX fork with Kokoro and Piper voices) that registers as a standard Android TextToSpeech engine: install it, select it under the system text-to-speech settings, and any app on the device can then speak through it — no Google services, fully on-device. Advanced setup: to keep the download small the voice models aren't bundled in the APK — you push a voice-model folder to the app's storage over adb and pick it in the app, so a PC is needed once to add voices. See the project page for models and step-by-step instructions.",
+          "iconUrl": "https://raw.githubusercontent.com/GodricTM/portal-tts-engine/main/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png",
+          "author": "GodricTM",
+          "homepage": "https://github.com/GodricTM/portal-tts-engine",
+          "submittedBy": "GodricTM"
+        },
+        {
+          "name": "Jarvis (portal-assistant)",
+          "packageName": "com.portal.assistant",
+          "source": "url",
+          "apkUrl": "https://github.com/rudysev/portal-assistant/releases/download/v2.1.0/portal-assistant-v2.1.0.apk",
+          "versionCode": 3,
+          "minSdk": 28,
+          "description": "Hands-free voice assistant — ask anything, control the device, open apps. BYO Gemini key.",
+          "longDescription": "A conversational AI assistant built for the Portal, powered by the Gemini Live API. Talk to it in plain language and it answers out loud in a natural voice — web lookups, device control, opening apps — running as background voice with just a small orange bar over whatever's on screen, plus a live on-screen chat when the app is open. It knows the device's local time and approximate location, so questions like \"what's the weather?\" just work. Bring your own free Google Gemini API key (aistudio.google.com/apikey) — it stays on the device. Tap-to-talk works everywhere; the hands-free \"Hey Jarvis\" wake word needs the companion portal-wake app and is Gen 1 only.",
+          "iconUrl": "https://raw.githubusercontent.com/rudysev/portal-assistant/main/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png",
+          "author": "rudysev",
+          "homepage": "https://github.com/rudysev/portal-assistant",
+          "submittedBy": "rudysev"
         }
       ]
     }
