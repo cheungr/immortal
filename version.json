@@ -1,6 +1,6 @@
 {
-  "versionCode": 55,
-  "versionName": "1.61",
+  "versionCode": 56,
+  "versionName": "1.62",
   "apkUrl": "https://github.com/starbrightlab/immortal/releases/latest/download/immortal.apk",
-  "notes": "A fix-up round. Tapping the screensaver to dismiss it now reliably opens your chosen app (like Home Assistant) no matter how long the frame has been up, and smart-home screen state stays accurate after dismissing. Waking the Portal with a tap during the overnight screen-off window works properly now. The photo frame gains a switch to turn off the bottom gradient for clean edge-to-edge art, Immich sources can play videos, and Immich connection problems are now logged for easier troubleshooting. Timers get a Reset button, folders can be created on the home screen again, and the provisioning kit fixes the Settings app on first-gen devices."
+  "notes": "Screensaver dismiss fix: the continuation frame now re-reads its launch intent when relaunched onto a live instance (singleTask), so 'open when dismissed' and the MQTT interactive publish work on every cycle, not just the first (#146, #103)."
 }
