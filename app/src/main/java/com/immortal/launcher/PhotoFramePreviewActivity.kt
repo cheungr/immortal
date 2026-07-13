@@ -163,6 +163,7 @@ class PhotoFramePreviewActivity : ComponentActivity() {
             batterySaver = cfg.batterySaver,
             powered = DreamPolicy.isPowered(this),
         )
+    Log.i(TAG, "applyKeepScreenOn: keep=$keep mode=${cfg.presenceMode} hasBattery=${DreamPolicy.hasBattery(this)} batterySaver=${cfg.batterySaver} powered=${DreamPolicy.isPowered(this)}")
     if (keep) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
   }

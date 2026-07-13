@@ -11,6 +11,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.util.Log
 
@@ -165,14 +167,40 @@ object DreamPolicy {
     }
     val now = System.currentTimeMillis()
     val pm = context.getSystemService(PowerManager::class.java)
-    val verdict =
+    val immediateVerdict =
         classifyDreamStop(
             userExitAgoMs = now - userExitAt,
             bridgeAgoMs = now - bridgeAt,
             inStockHandoff = inStockHandoff,
             interactive = pm?.isInteractive == true,
         )
-    Log.i(TAG, "dream stopped; verdict = $verdict")
+
+    if (immediateVerdict != DreamStopVerdict.REDREAM) {
+      Log.i(TAG, "dream stopped; immediate verdict = $immediateVerdict")
+      processDreamStop(context, immediateVerdict)
+      return
+    }
+
+    // Delay checking isInteractive to distinguish a system force-wake from a sleep transition.
+    // When sleeping, Android halts the dream (firing onDreamingStopped) prior to marking the
+    // PowerManager as non-interactive. Checking immediately yields a false REDREAM classification,
+    // relaunching the activity and blocking display sleep (Symptom A).
+    Handler(Looper.getMainLooper()).postDelayed({
+      val delayedNow = System.currentTimeMillis()
+      val delayedInteractive = pm?.isInteractive == true
+      val delayedVerdict =
+          classifyDreamStop(
+              userExitAgoMs = delayedNow - userExitAt,
+              bridgeAgoMs = delayedNow - bridgeAt,
+              inStockHandoff = inStockHandoff,
+              interactive = delayedInteractive,
+          )
+      Log.i(TAG, "dream stopped (delayed); verdict = $delayedVerdict (was REDREAM, interactive = $delayedInteractive)")
+      processDreamStop(context, delayedVerdict)
+    }, 200L)
+  }
+
+  private fun processDreamStop(context: Context, verdict: DreamStopVerdict) {
     // Single source of truth: tell the hub the presence consequence (it broadcasts to the
     // companion). SUPPRESSED (a Calls handoff) leaves presence untouched.
     PresenceHub.onDreamStopped(context, verdict)
