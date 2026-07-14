@@ -485,13 +485,13 @@ class PhotoFrameController(
     val root = FrameLayout(context)
     root.setBackgroundColor(Color.BLACK)
 
-    photo = ImageView(context)
-    photo.scaleType = ImageView.ScaleType.CENTER_CROP
-    root.addView(photo, FrameLayout.LayoutParams(MATCH, MATCH))
-
     videoView = VideoView(context)
     videoView.visibility = View.GONE
     root.addView(videoView, FrameLayout.LayoutParams(MATCH, MATCH, Gravity.CENTER))
+
+    photo = ImageView(context)
+    photo.scaleType = ImageView.ScaleType.CENTER_CROP
+    root.addView(photo, FrameLayout.LayoutParams(MATCH, MATCH))
 
     root.addView(faceRenderer.view)
     buildCalendar(root)
@@ -1163,8 +1163,6 @@ class PhotoFrameController(
   private fun showVideo(path: String, g: Int) {
     cancelKenBurns()
     faceRenderer.setCaption(null, null)
-    photo.setImageDrawable(null)
-    photo.visibility = View.GONE
     videoView.visibility = View.VISIBLE
     runCatching {
           videoView.setOnPreparedListener { mp ->
@@ -1175,6 +1173,8 @@ class PhotoFrameController(
             if (g == gen) {
               applyVideoFit(mp.videoWidth, mp.videoHeight)
               videoView.start()
+              photo.setImageDrawable(null)
+              photo.visibility = View.GONE
             }
           }
           videoView.setOnCompletionListener {
@@ -1262,6 +1262,7 @@ class PhotoFrameController(
         showRemoteVideo(android.net.Uri.parse(url), remoteHeaders, g)
         schedulePrefetch()
       }
+      prefetchNextRemoteItem()
       return
     }
     stopVideo()
@@ -1283,6 +1284,7 @@ class PhotoFrameController(
         // (iCloud/Google/Immich/DAV) serve EXIF-stripped images, so they carry no caption.
         if (smbSource != null) loadCaptionForSmb(url, g) else faceRenderer.setCaption(null, null)
         ui.postDelayed(remoteTick, intervalMs())
+        prefetchNextRemoteItem()
       }
     }
   }
@@ -1296,8 +1298,6 @@ class PhotoFrameController(
   private fun showRemoteVideo(uri: android.net.Uri, headers: Map<String, String>, g: Int) {
     cancelKenBurns()
     faceRenderer.setCaption(null, null)
-    photo.setImageDrawable(null)
-    photo.visibility = View.GONE
     videoView.visibility = View.VISIBLE
     runCatching {
           videoView.setOnPreparedListener { mp ->
@@ -1310,6 +1310,8 @@ class PhotoFrameController(
               remoteReresolveStreak = 0
               applyVideoFit(mp.videoWidth, mp.videoHeight)
               videoView.start()
+              photo.setImageDrawable(null)
+              photo.visibility = View.GONE
             }
           }
           videoView.setOnCompletionListener {
@@ -1724,6 +1726,25 @@ class PhotoFrameController(
   // sustained outage), reset on any successful photo. See [reresolveOrFallback].
   private val MAX_RERESOLVE = 3
   private fun dp(v: Int): Int = (v * context.resources.displayMetrics.density).toInt()
+
+  private fun prefetchNextRemoteItem() {
+    val cache = mediaCache ?: return
+    if (remoteUrls.isEmpty()) return
+    val nextIndex = (remoteIndex + 1) % remoteUrls.size
+    val nextUrl = remoteUrls[nextIndex]
+    if (nextUrl !in remoteVideos) {
+      io.execute {
+        try {
+          if (cache.isCached(nextUrl, isVideo = false)) return@execute
+          val bytes = runCatching { downloadBytes(nextUrl, remoteHeaders) }.getOrNull() ?: return@execute
+          cache.putImage(nextUrl, bytes)
+          Log.i(TAG, "Prefetched next image: $nextUrl")
+        } catch (e: Exception) {
+          Log.w(TAG, "Prefetch next image failed", e)
+        }
+      }
+    }
+  }
 
   internal companion object {
     /**

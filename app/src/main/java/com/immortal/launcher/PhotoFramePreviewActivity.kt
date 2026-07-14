@@ -175,6 +175,14 @@ class PhotoFramePreviewActivity : ComponentActivity() {
     return true
   }
 
+  override fun onStop() {
+    super.onStop()
+    if (PresenceHub.current.screen == ScreenState.DREAMING) {
+      Log.i(TAG, "onStop: system is dreaming, finishing preview activity to prevent background stack lingering")
+      finish()
+    }
+  }
+
   override fun onDestroy() {
     powerReceiver?.let { runCatching { unregisterReceiver(it) } }
     nightWatch.removeCallbacks(nightWatchTick)
